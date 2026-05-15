@@ -33,7 +33,24 @@ const GRADES = [
 ];
 const SHADE_OPTIONS = ["golden", "natural"];
 const SIZE_OPTIONS = Array.from({ length: 37 }, (_, i) => String(18 + i)); // 18–54
-const INITIAL_STATE = { stock: [], grades: GRADES, customers: [] };
+const INITIAL_STATE = { stock: [], grades: GRADES, customers: [], customerData: {} };
+
+function fmtRs(n) { return "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 }); }
+function getCurrentRate(customerData, customer, bf, gsm) {
+  const hist = customerData?.[customer]?.rateHistory?.[`${bf}|${gsm}`];
+  if (!hist || hist.length === 0) return "";
+  return hist[hist.length - 1].rate;
+}
+function computeWeightedCostRate(slabs, totalKg) {
+  if (!slabs || slabs.length === 0) return 0;
+  if (slabs.length === 1) return Number(slabs[0].rate) || 0;
+  let totalCost = 0, usedKg = 0;
+  slabs.forEach(s => { const kg = Number(s.kg) || 0; totalCost += kg * (Number(s.rate) || 0); usedKg += kg; });
+  if (usedKg === 0) return Number(slabs[0].rate) || 0;
+  const remKg = totalKg - usedKg;
+  if (remKg > 0) totalCost += remKg * (Number(slabs[slabs.length - 1].rate) || 0);
+  return totalKg > 0 ? totalCost / totalKg : 0;
+}
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 function fmt(n) { return Number(n).toLocaleString("en-IN"); }
@@ -787,14 +804,22 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
   const [reels, setReels] = useState([]);
   const [newReel, setNewReel] = useState({ size: "", weight: "" });
   const [saved, setSaved] = useState(false);
+  const [gradeRates, setGradeRates] = useState({}); // "bf|gsm" -> { mode:"simple"|"slabs", rate:"", slabs:[{kg,rate}] }
   const weightInputRef = useRef(null);
+
+  // Detect grades in current reels and ensure gradeRates has an entry for each
+  const detectedGrades = [...new Set(reels.map(r => `${form.bf}|${form.gsm}`))];
+  // When grade changes or reels added, seed gradeRates entry
+  const ensureGradeRate = (bf, gsm) => {
+    const k = `${bf}|${gsm}`;
+    if (!gradeRates[k]) setGradeRates(p => ({ ...p, [k]: { mode: "simple", rate: "", slabs: [{ kg: "", rate: "" }] } }));
+  };
 
   const addReel = () => {
     if (!newReel.size || !newReel.weight) return;
-    setReels(p => [...p, { ...newReel, id: genId() }]);
+    ensureGradeRate(form.bf, form.gsm);
+    setReels(p => [...p, { ...newReel, id: genId(), bf: form.bf, gsm: form.gsm, shade: form.shade }]);
     setNewReel(r => ({ ...r, weight: "" }));
-    // Re-focus + scroll input into view so keyboard stays up (mobile) and
-    // page doesn't jump away from the input (laptop)
     setTimeout(() => {
       weightInputRef.current?.focus();
       weightInputRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -803,9 +828,24 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
 
   const submit = () => {
     if (!form.supplier || reels.length === 0) return;
-    const nr = reels.map(r => ({ ...r, id: genId(), sold: false, bf: form.bf, gsm: form.gsm, shade: form.shade, supplier: form.supplier, invoiceNo: form.invoiceNo, inwardDate: form.date }));
+    // Group reels by grade to assign costRate
+    const gradeGroups = {};
+    reels.forEach(r => {
+      const k = `${r.bf}|${r.gsm}`;
+      if (!gradeGroups[k]) gradeGroups[k] = [];
+      gradeGroups[k].push(r);
+    });
+    const nr = reels.map(r => {
+      const k = `${r.bf}|${r.gsm}`;
+      const gr = gradeRates[k];
+      const gradeKg = gradeGroups[k].reduce((s, x) => s + Number(x.weight), 0);
+      const costRate = gr
+        ? (gr.mode === "simple" ? Number(gr.rate) || 0 : computeWeightedCostRate(gr.slabs, gradeKg))
+        : 0;
+      return { ...r, id: genId(), sold: false, supplier: form.supplier, invoiceNo: form.invoiceNo, inwardDate: form.date, costRate };
+    });
     update(s => { s.stock = [...s.stock, ...nr]; });
-    setSaved(true); setReels([]);
+    setSaved(true); setReels([]); setGradeRates({});
     setTimeout(() => { setSaved(false); setView("list"); }, 1800);
   };
 
@@ -865,6 +905,59 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
         })}
       </div>
 
+      {/* Cost Rates per grade */}
+      {reels.length > 0 && (
+        <div className="card">
+          <h3 style={{ marginBottom: 12 }}>Cost Rates — ₹/kg per grade</h3>
+          {[...new Set(reels.map(r => `${r.bf}|${r.gsm}`))].map(gk => {
+            const [bf, gsm] = gk.split("|");
+            const gr = gradeRates[gk] || { mode: "simple", rate: "", slabs: [{ kg: "", rate: "" }] };
+            const gradeLabel = `${bf} BF ${gsm} GSM`;
+            const gradeKg = reels.filter(r => r.bf === bf && r.gsm === gsm).reduce((s, r) => s + Number(r.weight), 0);
+            return (
+              <div key={gk} style={{ marginBottom: 14, padding: "12px 14px", background: "#f0f4f9", borderRadius: 10 }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <span style={{ fontWeight: 600, fontSize: 13 }}>{gradeLabel}</span>
+                  <span style={{ fontSize: 11, color: "#6a7a9a" }}>{fmt(Math.round(gradeKg))} kg</span>
+                </div>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: gr.mode === "slabs" ? 8 : 0 }}>
+                  {gr.mode === "simple" ? (
+                    <input type="number" inputMode="numeric" value={gr.rate} placeholder="₹/kg e.g. 28"
+                      onChange={e => setGradeRates(p => ({ ...p, [gk]: { ...gr, rate: e.target.value } }))}
+                      style={{ flex: 1 }} />
+                  ) : null}
+                  <button className="btn btn-outline btn-sm" style={{ flexShrink: 0, fontSize: 11 }}
+                    onClick={() => setGradeRates(p => ({ ...p, [gk]: { ...gr, mode: gr.mode === "simple" ? "slabs" : "simple" } }))}>
+                    {gr.mode === "simple" ? "+ Split rates" : "Simple rate"}
+                  </button>
+                </div>
+                {gr.mode === "slabs" && (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    {gr.slabs.map((sl, si) => (
+                      <div key={si} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                        <input type="number" inputMode="numeric" value={sl.kg} placeholder="kg"
+                          style={{ flex: 1 }}
+                          onChange={e => setGradeRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], kg: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
+                        <span style={{ fontSize: 12, color: "#6a7a9a", flexShrink: 0 }}>kg @</span>
+                        <input type="number" inputMode="numeric" value={sl.rate} placeholder="₹/kg"
+                          style={{ flex: 1 }}
+                          onChange={e => setGradeRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], rate: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
+                        {gr.slabs.length > 1 && <button onClick={() => setGradeRates(p => { const slabs = p[gk].slabs.filter((_, i) => i !== si); return { ...p, [gk]: { ...p[gk], slabs } }; })} style={{ background: "transparent", color: "#b83020", border: "none", fontSize: 14, cursor: "pointer" }}>✕</button>}
+                      </div>
+                    ))}
+                    <button className="btn btn-outline btn-sm" style={{ alignSelf: "flex-start", fontSize: 11 }}
+                      onClick={() => setGradeRates(p => ({ ...p, [gk]: { ...p[gk], slabs: [...p[gk].slabs, { kg: "", rate: "" }] } }))}>
+                      + Add slab
+                    </button>
+                    <div style={{ fontSize: 11, color: "#6a7a9a", fontStyle: "italic" }}>Remaining kg auto-assigned to last slab rate</div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* ── STICKY ENTRY BAR — stays at bottom regardless of scroll ── */}
       <div style={{ position: "sticky", bottom: 0, zIndex: 120, background: "#f2f5fb", padding: "10px 0 0 0" }}>
         <div className="card" style={{ borderTop: "2px solid #dde5f0", borderRadius: "14px 14px 14px 14px", boxShadow: "0 -4px 20px rgba(0,0,0,0.07)" }}>
@@ -872,7 +965,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
             <div style={{ flex: 1, minWidth: 110 }}>
               <label className="lbl">Size</label>
               <select value={newReel.size} onChange={e => setNewReel(r => ({ ...r, size: e.target.value }))}>
-                <option value="">Select</option>{SIZE_OPTIONS.map(o => <option key={o}>{o}"</option>)}
+                <option value="">Select</option>{SIZE_OPTIONS.map(o => <option key={o} value={o}>{o}"</option>)}
               </select>
             </div>
             <div style={{ flex: 1, minWidth: 110 }}>
@@ -1099,7 +1192,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
           <div style={{ minWidth: 110 }}>
             <label className="lbl">Size</label>
             <select value={filter.size} onChange={e => setFilter(f => ({ ...f, size: e.target.value }))}>
-              <option value="">All Sizes</option>{SIZE_OPTIONS.map(o => <option key={o}>{o}"</option>)}
+              <option value="">All Sizes</option>{SIZE_OPTIONS.map(o => <option key={o} value={o}>{o}"</option>)}
             </select>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 8, paddingBottom: 2 }}>
@@ -1170,7 +1263,6 @@ function SellTab({ state, update }) {
   const [customer, setCustomer] = useState("");
   const [date, setDate] = useState(today());
 
-  // Smart challan suggestion: find last used challan, parse numeric suffix, +1
   const suggestedChallan = (() => {
     const last = state.stock
       .filter(r => r.sold && r.soldChallanNo && r.soldDate)
@@ -1183,6 +1275,16 @@ function SellTab({ state, update }) {
   const [selected, setSelected] = useState([]);
   const [filter, setFilter] = useState({ bf: "", gsm: "", size: "" });
   const [done, setDone] = useState(null);
+  const [sellRates, setSellRates] = useState({}); // "bf|gsm" -> rate string
+
+  // Auto-load rates from customerData when customer changes
+  useEffect(() => {
+    if (!customer || !state.customerData?.[customer]) { setSellRates({}); return; }
+    const hist = state.customerData[customer]?.rateHistory || {};
+    const rates = {};
+    Object.entries(hist).forEach(([k, arr]) => { if (arr?.length) rates[k] = String(arr[arr.length - 1].rate); });
+    setSellRates(rates);
+  }, [customer]);
 
   const available = state.stock.filter(r => !r.sold);
   const filtered = available.filter(r => {
@@ -1195,27 +1297,51 @@ function SellTab({ state, update }) {
   const totalWt = selReels.reduce((s, r) => s + Number(r.weight), 0);
   const toggleReel = id => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
 
+  // Compute sale value from sell rates
+  const totalValue = selReels.reduce((s, r) => {
+    const rate = Number(sellRates[`${r.bf}|${r.gsm}`]) || 0;
+    return s + rate * Number(r.weight);
+  }, 0);
+
+  // Grades present in selection
+  const selGrades = [...new Set(selReels.map(r => `${r.bf}|${r.gsm}`))];
+
   const noStockWarning = filter.size && available.filter(r => r.size === filter.size).length === 0
     ? `No ${filter.size}" reels in stock. Please check the size.` : null;
 
   const sell = () => {
     if (!customer || selected.length === 0) return;
-    const wt = totalWt; const ct = selReels.length;
+    const wt = totalWt; const ct = selReels.length; const val = totalValue;
     update(s => {
-      s.stock = s.stock.map(r => selected.includes(r.id) ? { ...r, sold: true, soldDate: date, soldTo: customer, soldChallanNo: challanNo } : r);
+      s.stock = s.stock.map(r => {
+        if (!selected.includes(r.id)) return r;
+        const soldRate = Number(sellRates[`${r.bf}|${r.gsm}`]) || 0;
+        return { ...r, sold: true, soldDate: date, soldTo: customer, soldChallanNo: challanNo, soldRate };
+      });
       if (customer.trim() && !s.customers.includes(customer.trim())) {
         s.customers = [...(s.customers || []), customer.trim()].sort();
       }
+      // Save rate to customerData history if set
+      if (!s.customerData) s.customerData = {};
+      if (!s.customerData[customer]) s.customerData[customer] = { rateHistory: {} };
+      Object.entries(sellRates).forEach(([k, rate]) => {
+        if (!rate) return;
+        const hist = s.customerData[customer].rateHistory[k] || [];
+        const lastRate = hist.length ? hist[hist.length - 1].rate : null;
+        if (String(lastRate) !== String(rate)) {
+          s.customerData[customer].rateHistory[k] = [...hist, { rate: Number(rate), from: date }];
+        }
+      });
     });
-    setDone({ count: ct, wt, customer });
+    setDone({ count: ct, wt, customer, val });
   };
 
   if (done) return (
     <div className="card fade-in" style={{ textAlign: "center", padding: 56 }}>
       <div style={{ fontSize: 44, marginBottom: 16 }}>✓</div>
       <div className="serif" style={{ fontSize: 28 }}>Sale Recorded</div>
-      <div style={{ fontSize: 13, color: "#8a8070", marginTop: 8 }}>{done.count} reels · {fmt(done.wt)} kg sold to {done.customer}</div>
-      <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={() => { setDone(null); setSelected([]); setCustomer(""); setChallanNo(suggestedChallan); }}>Record Another Sale</button>
+      <div style={{ fontSize: 13, color: "#8a8070", marginTop: 8 }}>{done.count} reels · {fmt(done.wt)} kg · {done.val ? fmtRs(done.val) : "no rate set"} → {done.customer}</div>
+      <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={() => { setDone(null); setSelected([]); setCustomer(""); setChallanNo(suggestedChallan); setSellRates({}); }}>Record Another Sale</button>
     </div>
   );
 
@@ -1228,11 +1354,35 @@ function SellTab({ state, update }) {
           <div><label className="lbl">Customer Name</label><CustomerInput value={customer} onChange={setCustomer} customers={state.customers || []} /></div>
           <div><label className="lbl">Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
           <div>
-            <label className="lbl">Challan No (physical){suggestedChallan ? <span style={{ color: "#1e4d8c", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> · auto-suggested</span> : ""}</label>
-            <input value={challanNo} onChange={e => setChallanNo(e.target.value)} placeholder="e.g. CH-101" />
+            <label className="lbl">Challan No{suggestedChallan ? <span style={{ color: "#1e4d8c", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> · auto-suggested</span> : ""}</label>
+            <input value={challanNo} onChange={e => setChallanNo(e.target.value)} placeholder="e.g. 313" />
           </div>
         </div>
       </div>
+
+      {/* Sell rates per grade */}
+      {customer && (
+        <div className="card">
+          <h3>Selling Rates — ₹/kg {!selGrades.length && <span style={{ fontWeight: 400, color: "#9a9080", fontSize: 11 }}>(select reels to see grades)</span>}</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {state.grades.map(g => {
+              const k = `${g.bf}|${g.gsm}`;
+              const rate = sellRates[k] || "";
+              const selKg = selReels.filter(r => r.bf === g.bf && r.gsm === g.gsm).reduce((s, r) => s + Number(r.weight), 0);
+              return (
+                <div key={k} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ minWidth: 140, fontSize: 12, fontWeight: 500 }}>{g.bf} BF {g.gsm} GSM</span>
+                  <input type="number" inputMode="numeric" value={rate} placeholder="₹/kg"
+                    onChange={e => setSellRates(p => ({ ...p, [k]: e.target.value }))}
+                    style={{ width: 110 }} />
+                  {selKg > 0 && rate && <span style={{ fontSize: 12, color: "#1e4d8c", fontWeight: 600 }}>{fmtRs(selKg * Number(rate))}</span>}
+                  {selKg > 0 && !rate && <span style={{ fontSize: 11, color: "#b0a898", fontStyle: "italic" }}>rate not set</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <div className="card">
         <h3>Select Reels Being Sold</h3>
         <div className="g3" style={{ marginBottom: 12 }}>
@@ -1246,7 +1396,7 @@ function SellTab({ state, update }) {
           <div>
             <label className="lbl">Filter by Size</label>
             <select value={filter.size} onChange={e => setFilter(f => ({ ...f, size: e.target.value }))}>
-              <option value="">All Sizes</option>{SIZE_OPTIONS.map(o => <option key={o}>{o}"</option>)}
+              <option value="">All Sizes</option>{SIZE_OPTIONS.map(o => <option key={o} value={o}>{o}"</option>)}
             </select>
           </div>
           <div style={{ display: "flex", alignItems: "flex-end" }}>
@@ -1287,7 +1437,8 @@ function SellTab({ state, update }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div>
               <div className="lbl">Selected for Sale</div>
-              <div className="serif" style={{ fontSize: 28, lineHeight: 1.1 }}>{selected.length} reels · {fmt(totalWt)} kg</div>
+              <div className="serif" style={{ fontSize: 26, lineHeight: 1.1 }}>{selected.length} reels · {fmt(totalWt)} kg</div>
+              {totalValue > 0 && <div style={{ fontSize: 14, color: "#1e4d8c", fontWeight: 700, marginTop: 4 }}>{fmtRs(totalValue)}</div>}
               {!customer && <div style={{ fontSize: 11, color: "#b83020", marginTop: 6 }}>Enter customer name to confirm.</div>}
             </div>
             <button className="btn btn-dark" style={{ fontSize: 14, padding: "12px 28px" }} onClick={sell} disabled={!customer}>✓ Confirm Sale</button>
@@ -1467,20 +1618,70 @@ function HistoryTab({ state, update }) {
 
   const isCustomerDetail = custView === "customerDetail";
 
+  // Customer ledger data
+  const custLedger = selCustomer ? (() => {
+    const cs = custStats[selCustomer] || {};
+    const cd = state.customerData?.[selCustomer] || {};
+    const custChallans = Object.values(challanMap).filter(c => (c.customer || "") === selCustomer);
+    const revenue = custChallans.reduce((s, ch) => s + ch.reels.reduce((ss, r) => ss + (Number(r.soldRate) || 0) * Number(r.weight), 0), 0);
+    const profit = custChallans.reduce((s, ch) => s + ch.reels.reduce((ss, r) => ss + ((Number(r.soldRate) || 0) - (Number(r.costRate) || 0)) * Number(r.weight), 0), 0);
+    return { cs, cd, revenue, profit };
+  })() : null;
+
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} className="fade-in">
       {isCustomerDetail ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <button className="btn btn-outline btn-sm" onClick={() => { setCustView("customers"); setSelCustomer(""); setFilterCustomer(""); }}>← Customers</button>
-            <div><div className="section-eyebrow">Customer Detail</div><h2>{selCustomer}</h2></div>
+            <div><div className="section-eyebrow">Customer Ledger</div><h2>{selCustomer}</h2></div>
           </div>
-          {custStats[selCustomer] && (
-            <div style={{ display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12, color: "#6a6050", paddingLeft: 2 }}>
-              <span>📦 {custStats[selCustomer].challans} challans</span>
-              <span>🧻 {custStats[selCustomer].reels} reels</span>
-              <span>⚖️ {fmt(Math.round(custStats[selCustomer].kg))} kg ({(custStats[selCustomer].kg/1000).toFixed(2)} t)</span>
-              <span>🗓 Last: {fmtDate(custStats[selCustomer].lastDate)}</span>
+          {/* Stats row */}
+          {custLedger && (
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {[
+                { label: "Challans", val: custLedger.cs.challans || 0 },
+                { label: "Reels", val: custLedger.cs.reels || 0 },
+                { label: "Total kg", val: fmt(Math.round(custLedger.cs.kg || 0)) },
+                { label: "Revenue", val: custLedger.revenue ? fmtRs(custLedger.revenue) : "—" },
+                { label: "Profit", val: custLedger.profit ? fmtRs(custLedger.profit) : "—" },
+              ].map(s => (
+                <div key={s.label} style={{ background: "#fff", border: "1px solid #dde5f0", borderRadius: 10, padding: "10px 14px", flex: 1, minWidth: 80, textAlign: "center" }}>
+                  <div style={{ fontSize: 10, color: "#6a7a9a", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{s.label}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: s.label === "Profit" && custLedger.profit < 0 ? "#b83020" : "#1a2a4a" }}>{s.val}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Rate card - current rates + history */}
+          {custLedger && (
+            <div className="card" style={{ padding: "14px 16px" }}>
+              <h3 style={{ marginBottom: 12 }}>Rate Card — ₹/kg per grade</h3>
+              <div style={{ display: "flex", flexDirection: "column", gap: 0, border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
+                {state.grades.map((g, gi) => {
+                  const k = `${g.bf}|${g.gsm}`;
+                  const hist = custLedger.cd?.rateHistory?.[k] || [];
+                  const currentRate = hist.length ? hist[hist.length - 1].rate : null;
+                  return (
+                    <div key={k} style={{ padding: "10px 14px", borderBottom: gi < state.grades.length - 1 ? "1px solid #eef2f8" : "none", display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{g.bf} BF {g.gsm} GSM <span className="tag" style={{ fontSize: 10, textTransform: "capitalize", marginLeft: 4 }}>{g.shade}</span></div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: currentRate ? "#1a2a4a" : "#b0a898" }}>{currentRate ? fmtRs(currentRate) + "/kg" : "Not set"}</div>
+                      {hist.length > 1 && (
+                        <div style={{ fontSize: 10, color: "#6a7a9a" }}>
+                          {hist.slice(-3).reverse().slice(1).map((h, i) => (
+                            <div key={i}>{fmtRs(h.rate)}/kg from {fmtDate(h.from)}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {custLedger.cs.sizes && (
+                <div style={{ marginTop: 12, fontSize: 12, color: "#6a7a9a" }}>
+                  Top sizes: {Object.entries(custLedger.cs.sizes).sort((a,b) => b[1]-a[1]).slice(0,4).map(([sz,cnt]) => `${sz}" (${cnt}×)`).join(" · ")}
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -1511,7 +1712,7 @@ function HistoryTab({ state, update }) {
             <label className="lbl">Size</label>
             <select value={filterSize} onChange={e => setFilterSize(e.target.value)}>
               <option value="">All</option>
-              {SIZE_OPTIONS.map(o => <option key={o}>{o}"</option>)}
+              {SIZE_OPTIONS.map(o => <option key={o} value={o}>{o}"</option>)}
             </select>
           </div>
           <div style={{ flex: 1, minWidth: 110 }}>
@@ -1652,7 +1853,7 @@ function HistoryTab({ state, update }) {
                                 onChange={e => setAddReelFilter(f => ({ ...f, size: e.target.value }))}
                                 style={{ fontSize: 12 }}>
                                 <option value="">All sizes</option>
-                                {SIZE_OPTIONS.map(o => <option key={o}>{o}"</option>)}
+                                {SIZE_OPTIONS.map(o => <option key={o} value={o}>{o}"</option>)}
                               </select>
                             </div>
                           </div>
@@ -1812,8 +2013,10 @@ function ReportsTab({ state }) {
   const custMap = {};
   periodSold.forEach(r => {
     const c = r.soldTo || "Unknown";
-    if (!custMap[c]) custMap[c] = { reels: 0, kg: 0, sizes: {}, grades: {} };
+    if (!custMap[c]) custMap[c] = { reels: 0, kg: 0, revenue: 0, profit: 0, sizes: {}, grades: {} };
     custMap[c].reels++; custMap[c].kg += Number(r.weight);
+    custMap[c].revenue += (Number(r.soldRate) || 0) * Number(r.weight);
+    custMap[c].profit += ((Number(r.soldRate) || 0) - (Number(r.costRate) || 0)) * Number(r.weight);
     custMap[c].sizes[r.size] = (custMap[c].sizes[r.size] || 0) + 1;
     custMap[c].grades[`${r.bf} BF ${r.gsm} GSM`] = (custMap[c].grades[`${r.bf} BF ${r.gsm} GSM`] || 0) + 1;
   });
@@ -1858,15 +2061,20 @@ function ReportsTab({ state }) {
         </div>
       </div>
       <div className="g4">
-        {[
-          { label: "Reels Sold", val: totalReels, unit: "reels" },
-          { label: "Total Weight", val: totalTons.toFixed(2), unit: "tons" },
-          { label: "Total Weight (kg)", val: fmt(Math.round(totalKg)), unit: "kilograms" },
-          { label: "Avg Reel Weight", val: avgWeight, unit: "kg per reel" },
-        ].map(s => (
+        {(() => {
+          const revenue = periodSold.reduce((s, r) => s + (Number(r.soldRate) || 0) * Number(r.weight), 0);
+          const cost = periodSold.reduce((s, r) => s + (Number(r.costRate) || 0) * Number(r.weight), 0);
+          const profit = revenue - cost;
+          return [
+            { label: "Reels Sold", val: totalReels, unit: "reels" },
+            { label: "Total Weight", val: totalTons.toFixed(2), unit: "tons" },
+            { label: "Revenue", val: revenue ? fmtRs(revenue) : "—", unit: "selling value" },
+            { label: "Gross Profit", val: profit && revenue ? fmtRs(profit) : "—", unit: revenue ? `${((profit/revenue)*100).toFixed(1)}% margin` : "set rates to calculate" },
+          ];
+        })().map(s => (
           <div key={s.label} className="card" style={{ padding: "18px 20px" }}>
             <div className="lbl">{s.label}</div>
-            <div className="stat-num" style={{ fontSize: 32 }}>{s.val}</div>
+            <div className="stat-num" style={{ fontSize: 28 }}>{s.val}</div>
             <div className="serif-italic" style={{ fontSize: 12, color: "#b0a898", marginTop: 3 }}>{s.unit}</div>
           </div>
         ))}
@@ -1927,9 +2135,10 @@ function ReportsTab({ state }) {
                       <div style={{ fontSize: 11, color: "#9a9080", marginTop: 2 }}>{data.reels} reels · {fmt(Math.round(data.kg))} kg · {(data.kg / 1000).toFixed(2)} tons</div>
                     </div>
                   </div>
-                  <div style={{ textAlign: "right" }}>
-                    {topSz && <div style={{ fontSize: 11 }}>Top size: <span className="serif" style={{ fontSize: 16 }}>{topSz[0]}"</span> <span style={{ color: "#9a9080" }}>({topSz[1]}×)</span></div>}
-                    {topGr && <div style={{ fontSize: 11, color: "#9a9080", marginTop: 2 }}>{topGr[0]}</div>}
+              <div style={{ textAlign: "right" }}>
+                    {data.revenue > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2a4a" }}>{fmtRs(data.revenue)}</div>}
+                    {data.profit !== 0 && data.revenue > 0 && <div style={{ fontSize: 11, color: data.profit >= 0 ? "#2d6a4f" : "#b83020" }}>{fmtRs(data.profit)} profit</div>}
+                    {topSz && <div style={{ fontSize: 11, color: "#9a9080", marginTop: 2 }}>Top: {topSz[0]}" ({topSz[1]}×)</div>}
                   </div>
                 </div>
                 <div style={{ background: "#e8eef8", borderRadius: 3, height: 4, overflow: "hidden" }}>

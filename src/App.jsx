@@ -1154,7 +1154,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
     if (filter.bf && r.bf !== filter.bf) return;
     if (filter.gsm && r.gsm !== filter.gsm) return;
     if (filter.shade && r.shade !== filter.shade) return;
-    if (filter.size && r.size !== filter.size) return;
+    if (filter.size && String(r.size).replace(/"/g,"").trim() !== filter.size) return;
     const k = `${r.size}|${r.bf}|${r.gsm}`;
     if (!sizeGroupMap[k]) sizeGroupMap[k] = { size: r.size, bf: r.bf, gsm: r.gsm, shade: r.shade, reels: [], soldReels: [] };
     if (r.sold) sizeGroupMap[k].soldReels.push(r);
@@ -1290,7 +1290,7 @@ function SellTab({ state, update }) {
   const filtered = available.filter(r => {
     if (filter.bf && r.bf !== filter.bf) return false;
     if (filter.gsm && r.gsm !== filter.gsm) return false;
-    if (filter.size && r.size !== filter.size) return false;
+    if (filter.size && String(r.size).replace(/"/g,"").trim() !== filter.size) return false;
     return true;
   }).sort((a, b) => Number(a.size) - Number(b.size) || Number(a.weight) - Number(b.weight));
   const selReels = state.stock.filter(r => selected.includes(r.id));

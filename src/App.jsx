@@ -157,12 +157,24 @@ function KraftReelIcon({ size = 30 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
       <rect width="30" height="30" rx="7" fill="#1a2a4a"/>
-      {/* Stacked paper reels - blue theme */}
-      <ellipse cx="15" cy="19" rx="9" ry="3.5" fill="#2a5298"/>
-      <ellipse cx="15" cy="15" rx="9" ry="3.5" fill="#3a6bc4"/>
-      <ellipse cx="15" cy="11" rx="9" ry="3.5" fill="#4a84e8"/>
-      {/* Shine on top */}
-      <ellipse cx="12" cy="10.2" rx="3" ry="1" fill="#7ab0f8" opacity="0.5"/>
+      {/* Paper reel — side view: cylinder */}
+      {/* Left flange */}
+      <ellipse cx="9" cy="15" rx="3" ry="8" fill="#2a5298"/>
+      {/* Right flange */}
+      <ellipse cx="21" cy="15" rx="3" ry="8" fill="#2a5298"/>
+      {/* Core tube */}
+      <rect x="9" y="7" width="12" height="16" fill="#3a6bc4"/>
+      {/* Wound paper layers */}
+      <rect x="9" y="8.5" width="12" height="1.5" fill="#5a8be0" opacity="0.7"/>
+      <rect x="9" y="11" width="12" height="1.5" fill="#5a8be0" opacity="0.6"/>
+      <rect x="9" y="13.5" width="12" height="1.5" fill="#5a8be0" opacity="0.7"/>
+      <rect x="9" y="16" width="12" height="1.5" fill="#5a8be0" opacity="0.6"/>
+      <rect x="9" y="18.5" width="12" height="1.5" fill="#5a8be0" opacity="0.7"/>
+      {/* Core hole */}
+      <ellipse cx="9" cy="15" rx="1.4" ry="3.5" fill="#1a2a4a"/>
+      <ellipse cx="21" cy="15" rx="1.4" ry="3.5" fill="#1a2a4a"/>
+      {/* Shine */}
+      <ellipse cx="20" cy="10" rx="1" ry="0.5" fill="#8ab4f8" opacity="0.5"/>
     </svg>
   );
 }
@@ -1895,31 +1907,68 @@ function HistoryTab({ state, update }) {
                       </div>
                     )}
 
-                    {/* Sizes + weights */}
-                    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                      {Object.entries(bySizeInChallan).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => (
-                        <div key={sz} style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                          <div style={{ minWidth: 52, flexShrink: 0 }}>
-                            <span className="serif" style={{ fontSize: 22, lineHeight: 1, color: "#1a1a1a" }}>{sz}"</span>
-                          </div>
-                          <span className="tag" style={{ flexShrink: 0 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
-                          <div style={{ flex: 1, display: "flex", flexWrap: "wrap", gap: 5 }}>
-                            {reels.sort((a, b) => Number(a.weight) - Number(b.weight)).map((r) => (
-                              <span key={r.id} style={{ background: "#fef0ee", border: "1px solid #f0c0ba", borderRadius: 5, padding: "3px 9px", fontSize: 12, color: "#9a4030", fontWeight: 500 }}>
-                                {fmt(r.weight)} kg
-                              </span>
-                            ))}
-                          </div>
-                          <div style={{ fontSize: 12, color: "#9a9080", flexShrink: 0 }}>
-                            {fmt(reels.reduce((s, r) => s + Number(r.weight), 0))} kg
+                    {/* Sizes + weights grouped by grade with editable rate */}
+                    {(() => {
+                      const byGrade = {};
+                      ch.reels.forEach(r => {
+                        const k = `${r.bf}|${r.gsm}`;
+                        if (!byGrade[k]) byGrade[k] = { bf: r.bf, gsm: r.gsm, reels: [], rate: r.soldRate || "" };
+                        byGrade[k].reels.push(r);
+                        if (r.soldRate && !byGrade[k].rate) byGrade[k].rate = r.soldRate;
+                      });
+                      const challanVal = Object.values(byGrade).reduce((s, g) => {
+                        const kg = g.reels.reduce((ss, r) => ss + Number(r.weight), 0);
+                        return s + (Number(g.rate) || 0) * kg;
+                      }, 0);
+                      return (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                          {Object.entries(byGrade).sort((a, b) => a[0].localeCompare(b[0])).map(([gk, gd]) => {
+                            const gradeKg = gd.reels.reduce((s, r) => s + Number(r.weight), 0);
+                            const gradeVal = (Number(gd.rate) || 0) * gradeKg;
+                            return (
+                              <div key={gk} style={{ background: "#f0f4f9", borderRadius: 10, padding: "10px 12px" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                                  <span className="tag">{gd.bf} BF · {gd.gsm} GSM</span>
+                                  <span style={{ fontSize: 12, color: "#6a7a9a" }}>{fmt(Math.round(gradeKg))} kg</span>
+                                  <div style={{ flex: 1 }} />
+                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                    <input
+                                      type="number" inputMode="numeric"
+                                      value={gd.rate}
+                                      placeholder="₹/kg"
+                                      onChange={e => {
+                                        const newRate = e.target.value;
+                                        update(s => {
+                                          s.stock = s.stock.map(r =>
+                                            gd.reels.some(x => x.id === r.id) ? { ...r, soldRate: newRate ? Number(newRate) : undefined } : r
+                                          );
+                                        });
+                                      }}
+                                      style={{ width: 80, padding: "4px 8px", fontSize: 12 }}
+                                    />
+                                    <span style={{ fontSize: 11, color: "#6a7a9a" }}>/kg</span>
+                                    {gradeVal > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#1a2a4a" }}>{fmtRs(gradeVal)}</span>}
+                                  </div>
+                                </div>
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                                  {gd.reels.sort((a, b) => Number(a.size) - Number(b.size) || Number(a.weight) - Number(b.weight)).map(r => (
+                                    <span key={r.id} style={{ background: "#fff", border: "1px solid #c8d8f0", borderRadius: 5, padding: "3px 9px", fontSize: 12, color: "#2a4a7a", fontWeight: 500 }}>
+                                      {r.size}" · {fmt(r.weight)} kg
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            );
+                          })}
+                          <div style={{ paddingTop: 10, borderTop: "1px solid #dde5f0", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                            <span style={{ color: "#9a9080" }}>{ch.reels.length} reels · {fmt(Math.round(totalWt))} kg</span>
+                            <span style={{ fontWeight: 700, color: "#1a2a4a", fontSize: 15 }}>
+                              {challanVal > 0 ? fmtRs(challanVal) : <span style={{ color: "#b0a898", fontStyle: "italic", fontSize: 12 }}>Add ₹/kg to see total</span>}
+                            </span>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                    <div style={{ marginTop: 14, paddingTop: 10, borderTop: "1px solid #dde5f0", display: "flex", justifyContent: "flex-end", gap: 20, fontSize: 13 }}>
-                      <span style={{ color: "#9a9080" }}>{ch.reels.length} reels</span>
-                      <span style={{ fontWeight: 600, color: "#1a1a1a" }}>{fmt(Math.round(totalWt))} kg total</span>
-                    </div>
+                      );
+                    })()}
                   </div>
                 )}
               </div>

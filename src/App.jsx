@@ -36,6 +36,7 @@ const SIZE_OPTIONS = Array.from({ length: 37 }, (_, i) => String(18 + i)); // 18
 const INITIAL_STATE = { stock: [], grades: GRADES, customers: [], customerData: {} };
 
 function fmtRs(n) { return "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 }); }
+function fmtRate(n) { if (!n && n !== 0) return ""; const v = Number(n); return "₹" + (Number.isInteger(v) ? v.toString() : v.toFixed(2)); }
 function getCurrentRate(customerData, customer, bf, gsm) {
   const hist = customerData?.[customer]?.rateHistory?.[`${bf}|${gsm}`];
   if (!hist || hist.length === 0) return "";
@@ -62,7 +63,7 @@ function monthLabel(k) { if (!k) return ""; const [y, m] = k.split("-"); return 
 const TABS = ["Home", "Stock", "Sell", "History", "Reports", "Settings"];
 
 // ─── CHART HELPERS ────────────────────────────────────────────────────────────
-const CHART_COLORS = ["#2d2d2d", "#1e4d8c", "#5a8a5a", "#5a6a8a", "#8a4a4a", "#6a5a8a", "#8a7a3a", "#3a7a8a"];
+const CHART_COLORS = ["#1e3a6e", "#1e4d8c", "#5a8a5a", "#5a6a8a", "#8a4a4a", "#6a5a8a", "#8a7a3a", "#3a7a8a"];
 
 function PieChart({ data, size = 160 }) {
   if (!data?.length) return null;
@@ -89,7 +90,7 @@ function PieChart({ data, size = 160 }) {
         {slices.map((s, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
             <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
-            <span style={{ color: "#1a1a1a", fontWeight: 500 }}>{s.label}</span>
+            <span style={{ color: "#1a2a4a", fontWeight: 500 }}>{s.label}</span>
             <span style={{ color: "#9a9080" }}>{s.pct}%</span>
           </div>
         ))}
@@ -98,7 +99,7 @@ function PieChart({ data, size = 160 }) {
   );
 }
 
-function BarChart({ data, color = "#2d2d2d", unit = "", height = 120 }) {
+function BarChart({ data, color = "#1e3a6e", unit = "", height = 120 }) {
   if (!data?.length) return null;
   const max = Math.max(...data.map(d => d.value), 1);
   return (
@@ -157,23 +158,16 @@ function KraftReelIcon({ size = 30 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 30 30" xmlns="http://www.w3.org/2000/svg">
       <rect width="30" height="30" rx="7" fill="#1a2a4a"/>
-      {/* Paper reel — side view: cylinder */}
-      {/* Left flange */}
       <ellipse cx="9" cy="15" rx="3" ry="8" fill="#2a5298"/>
-      {/* Right flange */}
       <ellipse cx="21" cy="15" rx="3" ry="8" fill="#2a5298"/>
-      {/* Core tube */}
       <rect x="9" y="7" width="12" height="16" fill="#3a6bc4"/>
-      {/* Wound paper layers */}
       <rect x="9" y="8.5" width="12" height="1.5" fill="#5a8be0" opacity="0.7"/>
       <rect x="9" y="11" width="12" height="1.5" fill="#5a8be0" opacity="0.6"/>
       <rect x="9" y="13.5" width="12" height="1.5" fill="#5a8be0" opacity="0.7"/>
       <rect x="9" y="16" width="12" height="1.5" fill="#5a8be0" opacity="0.6"/>
       <rect x="9" y="18.5" width="12" height="1.5" fill="#5a8be0" opacity="0.7"/>
-      {/* Core hole */}
       <ellipse cx="9" cy="15" rx="1.4" ry="3.5" fill="#1a2a4a"/>
       <ellipse cx="21" cy="15" rx="1.4" ry="3.5" fill="#1a2a4a"/>
-      {/* Shine */}
       <ellipse cx="20" cy="10" rx="1" ry="0.5" fill="#8ab4f8" opacity="0.5"/>
     </svg>
   );
@@ -188,14 +182,15 @@ export default function App() {
   const [lastSaved, setLastSaved] = useState(null);
   const [saveError, setSaveError] = useState(false);
   const saveTimer = useRef(null);
+  const hasPendingSave = useRef(false);
   const isRemoteUpdate = useRef(false);
 
-  // ── Real-time listener — fires whenever Firebase data changes ──
+  // ── Real-time listener — only apply remote updates when no local save is pending ──
   useEffect(() => {
     const dataRef = ref(db, DATA_REF);
     const unsub = onValue(dataRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
+      if (data && !hasPendingSave.current) {
         isRemoteUpdate.current = true;
         setState({ ...INITIAL_STATE, ...data });
       }
@@ -212,13 +207,20 @@ export default function App() {
     setState(prev => {
       const next = JSON.parse(JSON.stringify(prev));
       fn(next);
-      // Debounce writes — 600ms after last keystroke
+      hasPendingSave.current = true;
       clearTimeout(saveTimer.current);
       saveTimer.current = setTimeout(() => {
         cloudSave(next)
-          .then(() => { setLastSaved(new Date()); setSaveError(false); })
-          .catch(() => setSaveError(true));
-      }, 600);
+          .then(() => {
+            hasPendingSave.current = false;
+            setLastSaved(new Date());
+            setSaveError(false);
+          })
+          .catch(() => {
+            hasPendingSave.current = false;
+            setSaveError(true);
+          });
+      }, 300);
       return next;
     });
   }, []);
@@ -240,20 +242,20 @@ export default function App() {
   const moderateItems = Object.values(sizeCountMap).filter(x => x.count === 3).sort((a, b) => Number(a.size) - Number(b.size));
 
   return (
-    <div style={{ fontFamily: "'DM Sans', 'Helvetica Neue', sans-serif", background: "#f2f5fb", minHeight: "100vh", color: "#1a1a1a" }}>
+    <div style={{ fontFamily: "'DM Sans', 'Helvetica Neue', sans-serif", background: "#f2f5fb", minHeight: "100vh", color: "#1a2a4a" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;1,400;1,500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300;1,9..40,400&display=swap');
         *{box-sizing:border-box;margin:0;padding:0}
         body{background:#f4f7fb}
         ::-webkit-scrollbar{width:3px}::-webkit-scrollbar-track{background:#e0e8f4}::-webkit-scrollbar-thumb{background:#a0b8d8;border-radius:2px}
-        input,select,textarea{background:#fff!important;border:1.5px solid #d0dced!important;color:#1a1a1a!important;padding:9px 12px;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;outline:none;width:100%;transition:all 0.15s;resize:vertical}
+        input,select,textarea{background:#fff!important;border:1.5px solid #d0dced!important;color:#1a2a4a!important;padding:9px 12px;border-radius:8px;font-family:'DM Sans',sans-serif;font-size:13px;outline:none;width:100%;transition:all 0.15s;resize:vertical}
         input:focus,select:focus,textarea:focus{border-color:#1e4d8c!important;box-shadow:0 0 0 3px rgba(30,77,140,0.07)}
-        select option{background:#fff;color:#1a1a1a}
+        select option{background:#fff;color:#1a2a4a}
         input[type="checkbox"]{width:auto!important;accent-color:#1e4d8c;cursor:pointer}
         button{cursor:pointer;font-family:'DM Sans',sans-serif}
         .btn{display:inline-flex;align-items:center;gap:6px;padding:9px 18px;border-radius:8px;font-size:13px;font-weight:500;border:none;transition:all 0.15s}
-        .btn-dark{background:#1a2a4a;color:#fff}.btn-dark:hover{background:#1e3a6e}.btn-dark:disabled{background:#b0a898;cursor:not-allowed}
-        .btn-outline{background:transparent;color:#1a1a1a;border:1.5px solid #d0dced!important}.btn-outline:hover{border-color:#1e4d8c!important;color:#1e4d8c}
+        .btn-dark{background:#1a2a4a;color:#fff}.btn-dark:hover{background:#1e3a6e}.btn-dark:disabled{background:#8aabcc;cursor:not-allowed}
+        .btn-outline{background:transparent;color:#1a2a4a;border:1.5px solid #d0dced!important}.btn-outline:hover{border-color:#1e4d8c!important;color:#1e4d8c}
         .btn-sm{padding:6px 12px;font-size:12px}
         .card{background:#fff;border:1px solid #dde5f0;border-radius:14px;padding:22px}
         .card-flat{background:#fff;border:1px solid #dde5f0;border-radius:14px;overflow:hidden}
@@ -261,7 +263,7 @@ export default function App() {
         .tag-green{background:#edf7f0;border-color:#b5dcc0;color:#2d6a4f}
         .tag-red{background:#fef0ee;border-color:#f0c0ba;color:#b83020}
         .tag-orange{background:#fef5e8;border-color:#f0d5a0;color:#a05800}
-        .tag-blue{background:#eef3fb;border-color:#a0bce0;color:#1e3a6e}
+        .tag-blue{background:#eef3fb;border-color:#a0b8d8;color:#1e3a6e}
         .lbl{font-size:10px;color:#8a8070;text-transform:uppercase;letter-spacing:0.09em;margin-bottom:5px;display:block;font-weight:600}
         .g2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
         .g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
@@ -278,13 +280,13 @@ export default function App() {
         h3{font-size:11px;font-weight:600;color:#6a6050;margin-bottom:14px;letter-spacing:0.08em;text-transform:uppercase}
         .serif{font-family:'Playfair Display',serif}
         .serif-italic{font-family:'Playfair Display',serif;font-style:italic}
-        .stat-num{font-family:'Playfair Display',serif;font-size:42px;line-height:1;font-weight:500;color:#1a1a1a}
+        .stat-num{font-family:'Playfair Display',serif;font-size:42px;line-height:1;font-weight:500;color:#1a2a4a}
         .section-eyebrow{font-family:'Playfair Display',serif;font-size:14px;font-style:italic;font-weight:400;color:#8a7868;margin-bottom:4px}
         .ok-box{background:#edf7f0;border:1px solid #b5dcc0;border-radius:8px;padding:11px 14px;font-size:12px;color:#2d6a4f}
         .err-box{background:#fef0ee;border:1px solid #f0c0ba;border-radius:8px;padding:11px 14px;font-size:12px;color:#b83020}
         .warn-box{background:#fef5e8;border:1px solid #f0d5a0;border-radius:8px;padding:11px 14px;font-size:12px;color:#a05800}
         .low-alert{background:#fef9ee;border:1px solid #f0d5a0;border-radius:14px;padding:18px 22px}
-        .moderate-alert{background:#f4f8ff;border:1px solid #a0bce0;border-radius:14px;padding:18px 22px}
+        .moderate-alert{background:#f4f8ff;border:1px solid #a0b8d8;border-radius:14px;padding:18px 22px}
         .sync-dot{width:6px;height:6px;border-radius:50%;background:#52c478;display:inline-block;margin-right:5px;animation:pulse 2s infinite}
         .sync-dot-err{width:6px;height:6px;border-radius:50%;background:#e05030;display:inline-block;margin-right:5px}
         @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
@@ -329,16 +331,16 @@ export default function App() {
           {/* Brand — mobile: icon + Prime Paper and Board text */}
           <div className="brand-mobile" style={{ display: "flex", alignItems: "center", gap: 7, paddingRight: 10, marginRight: 4, flexShrink: 0 }}>
             <KraftReelIcon size={26} />
-            <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 13, fontWeight: 500, color: "#1a2a4a", whiteSpace: "nowrap" }}>Prime Paper</span>
+            <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 13, fontWeight: 500, color: "#1a2a4a", whiteSpace: "nowrap" }}>Prime Paper and Board</span>
           </div>
           <div style={{ display: "flex", overflowX: "auto", flex: 1, scrollbarWidth: "none" }}>
             {TABS.map(t => (
               <button key={t} onClick={() => setTab(t)} style={{ background: "none", border: "none", borderBottom: `2px solid ${tab === t ? "#1e4d8c" : "transparent"}`, padding: "13px 11px", fontSize: 12, fontWeight: tab === t ? 600 : 400, color: tab === t ? "#1a2a4a" : "#9a9080", whiteSpace: "nowrap", transition: "all 0.15s", letterSpacing: "0.01em" }}>{t}</button>
             ))}
           </div>
-          <div className="nav-sync-text" style={{ fontSize: 10, color: saveError ? "#b83020" : "#b0a898", paddingLeft: 14, whiteSpace: "nowrap", display: "flex", alignItems: "center", flexShrink: 0 }}>
+          <div className="nav-sync-text" style={{ fontSize: 10, color: saveError ? "#b83020" : "#8aabcc", paddingLeft: 14, whiteSpace: "nowrap", display: "flex", alignItems: "center", flexShrink: 0 }}>
             {syncing
-              ? <><span style={{ width: 6, height: 6, borderRadius: "50%", background: "#b0a898", display: "inline-block", marginRight: 5 }} />Syncing…</>
+              ? <><span style={{ width: 6, height: 6, borderRadius: "50%", background: "#8aabcc", display: "inline-block", marginRight: 5 }} />Syncing…</>
               : saveError
                 ? <><span className="sync-dot-err" />Offline</>
                 : <><span className="sync-dot" />{lastSaved ? "Saved" : "Live"}</>
@@ -347,7 +349,7 @@ export default function App() {
           {/* Mobile sync dot only */}
           <div style={{ flexShrink: 0, paddingLeft: 6 }}>
             {syncing
-              ? <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#b0a898", display: "inline-block" }} />
+              ? <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#8aabcc", display: "inline-block" }} />
               : saveError
                 ? <span className="sync-dot-err" />
                 : <span className="sync-dot" />
@@ -390,7 +392,7 @@ function HomeTab({ state, setTab, setStockNav, lowItems, moderateItems, totalKg,
           <div className="section-eyebrow">Overview</div>
           <h1>Stock Dashboard</h1>
         </div>
-        <div style={{ fontSize: 11, color: "#b0a898" }}>{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
+        <div style={{ fontSize: 11, color: "#8aabcc" }}>{new Date().toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}</div>
       </div>
 
       <div className="g3">
@@ -402,7 +404,7 @@ function HomeTab({ state, setTab, setStockNav, lowItems, moderateItems, totalKg,
           <div key={s.label} className="card" style={{ padding: "22px 24px" }}>
             <div className="lbl">{s.label}</div>
             <div className="stat-num">{s.val}</div>
-            <div className="serif-italic" style={{ fontSize: 13, color: "#b0a898", marginTop: 4 }}>{s.unit}</div>
+            <div className="serif-italic" style={{ fontSize: 13, color: "#8aabcc", marginTop: 4 }}>{s.unit}</div>
           </div>
         ))}
       </div>
@@ -419,11 +421,11 @@ function HomeTab({ state, setTab, setStockNav, lowItems, moderateItems, totalKg,
               <div key={`${item.size}${item.bf}${item.gsm}`} style={{ background: "#fff", border: "1px solid #f0d5a0", borderRadius: 10, padding: "10px 16px", display: "flex", gap: 14, alignItems: "center" }}>
                 <div>
                   <div className="serif" style={{ fontSize: 26, lineHeight: 1, color: "#a05800" }}>{item.size}"</div>
-                  <div style={{ fontSize: 10, color: "#b0a898", marginTop: 3 }}>{item.bf} BF · {item.gsm} GSM</div>
+                  <div style={{ fontSize: 10, color: "#8aabcc", marginTop: 3 }}>{item.bf} BF · {item.gsm} GSM</div>
                 </div>
                 <div style={{ textAlign: "center" }}>
                   <div className="serif" style={{ fontSize: 30, lineHeight: 1, color: item.count === 0 ? "#b83020" : "#a05800" }}>{item.count}</div>
-                  <div style={{ fontSize: 10, color: "#b0a898" }}>left</div>
+                  <div style={{ fontSize: 10, color: "#8aabcc" }}>left</div>
                 </div>
               </div>
             ))}
@@ -440,7 +442,7 @@ function HomeTab({ state, setTab, setStockNav, lowItems, moderateItems, totalKg,
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {moderateItems.map(item => (
-              <div key={`${item.size}${item.bf}${item.gsm}`} style={{ background: "#fff", border: "1px solid #a0bce0", borderRadius: 8, padding: "8px 14px" }}>
+              <div key={`${item.size}${item.bf}${item.gsm}`} style={{ background: "#fff", border: "1px solid #a0b8d8", borderRadius: 8, padding: "8px 14px" }}>
                 <div className="serif" style={{ fontSize: 20, color: "#1e3a6e" }}>{item.size}"</div>
                 <div style={{ fontSize: 10, color: "#8a8070" }}>{item.bf} BF · {item.gsm} GSM</div>
               </div>
@@ -462,10 +464,10 @@ function HomeTab({ state, setTab, setStockNav, lowItems, moderateItems, totalKg,
             {Object.entries(spec.sizes).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, cnt]) => (
               <div key={sz}
                 onClick={() => { setTab("Stock"); setStockNav({ size: sz }); }}
-                style={{ background: cnt === 0 ? "#fef0ee" : cnt <= 2 ? "#fef9ee" : cnt === 3 ? "#f4f8ff" : "#f4f7fb", border: `1px solid ${cnt === 0 ? "#f0c0ba" : cnt <= 2 ? "#f0d5a0" : cnt === 3 ? "#a0bce0" : "#dde5f0"}`, borderRadius: 10, padding: "9px 14px", textAlign: "center", minWidth: 68, cursor: "pointer", transition: "transform 0.1s, box-shadow 0.1s" }}
+                style={{ background: cnt === 0 ? "#fef0ee" : cnt <= 2 ? "#fef9ee" : cnt === 3 ? "#f4f8ff" : "#f4f7fb", border: `1px solid ${cnt === 0 ? "#f0c0ba" : cnt <= 2 ? "#f0d5a0" : cnt === 3 ? "#a0b8d8" : "#dde5f0"}`, borderRadius: 10, padding: "9px 14px", textAlign: "center", minWidth: 68, cursor: "pointer", transition: "transform 0.1s, box-shadow 0.1s" }}
                 onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.05)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(0,0,0,0.10)"; }}
                 onMouseLeave={e => { e.currentTarget.style.transform = "scale(1)"; e.currentTarget.style.boxShadow = "none"; }}>
-                <div className="serif" style={{ fontSize: 20, lineHeight: 1, color: cnt === 0 ? "#b83020" : cnt <= 2 ? "#a05800" : cnt === 3 ? "#1e3a6e" : "#1a1a1a" }}>{sz}"</div>
+                <div className="serif" style={{ fontSize: 20, lineHeight: 1, color: cnt === 0 ? "#b83020" : cnt <= 2 ? "#a05800" : cnt === 3 ? "#1e3a6e" : "#1a2a4a" }}>{sz}"</div>
                 <div style={{ fontSize: 10, color: cnt === 0 ? "#c07060" : "#9a9080", marginTop: 4 }}>{cnt === 0 ? "out of stock" : `${cnt} reel${cnt !== 1 ? "s" : ""}`}</div>
               </div>
             ))}
@@ -477,7 +479,7 @@ function HomeTab({ state, setTab, setStockNav, lowItems, moderateItems, totalKg,
         <div className="card" style={{ textAlign: "center", padding: 52 }}>
           <div style={{ fontSize: 40, marginBottom: 14 }}>📦</div>
           <div className="serif-italic" style={{ fontSize: 22, color: "#9a9080" }}>No stock yet.</div>
-          <div style={{ fontSize: 13, color: "#b0a898", marginTop: 6 }}>Go to Stock → Add Inward to get started.</div>
+          <div style={{ fontSize: 13, color: "#8aabcc", marginTop: 6 }}>Go to Stock → Add Inward to get started.</div>
         </div>
       )}
     </div>
@@ -510,7 +512,7 @@ function EditableStockForSize({ sz, availForSize, update }) {
         <h3 style={{ marginBottom: 0 }}>Current Stock — {availForSize.length} reels available</h3>
       </div>
       {availForSize.length === 0 ? (
-        <div style={{ fontSize: 13, color: "#b0a898", fontStyle: "italic" }}>No stock currently available for this size.</div>
+        <div style={{ fontSize: 13, color: "#8aabcc", fontStyle: "italic" }}>No stock currently available for this size.</div>
       ) : (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
           {sorted.map((r) => (
@@ -525,7 +527,7 @@ function EditableStockForSize({ sz, availForSize, update }) {
                     {SIZE_OPTIONS.map(o => <option key={o} value={o}>{o}"</option>)}
                   </select>
                   <div style={{ display: "flex", gap: 4 }}>
-                    <button onClick={() => saveEdit(r)} style={{ background: "#1a1a1a", color: "#fff", border: "none", borderRadius: 5, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>✓</button>
+                    <button onClick={() => saveEdit(r)} style={{ background: "#1a2a4a", color: "#fff", border: "none", borderRadius: 5, padding: "3px 10px", fontSize: 11, cursor: "pointer" }}>✓</button>
                     <button onClick={() => setEditingId(null)} style={{ background: "transparent", color: "#9a9080", border: "1px solid #ddd", borderRadius: 5, padding: "3px 8px", fontSize: 11, cursor: "pointer" }}>✕</button>
                   </div>
                 </div>
@@ -533,7 +535,7 @@ function EditableStockForSize({ sz, availForSize, update }) {
                 <>
                   <div className="serif" style={{ fontSize: 20, lineHeight: 1 }}>{fmt(r.weight)}</div>
                   <div style={{ fontSize: 10, color: "#9a9080", marginTop: 2 }}>kg</div>
-                  <div style={{ fontSize: 9, color: "#b0a898", marginTop: 2 }}>{fmtDate(r.inwardDate)}</div>
+                  <div style={{ fontSize: 9, color: "#8aabcc", marginTop: 2 }}>{fmtDate(r.inwardDate)}</div>
                   <div style={{ display: "flex", gap: 4, marginTop: 6, justifyContent: "center" }}>
                     <button onClick={() => startEdit(r)} style={{ background: "transparent", color: "#1e4d8c", border: "1px solid #c8d8f0", borderRadius: 4, padding: "2px 7px", fontSize: 10, cursor: "pointer" }}>Edit</button>
                     <button onClick={() => setConfirmDelete(r.id)} style={{ background: "transparent", color: "#b83020", border: "1px solid #f0c0ba", borderRadius: 4, padding: "2px 7px", fontSize: 10, cursor: "pointer" }}>Del</button>
@@ -546,7 +548,7 @@ function EditableStockForSize({ sz, availForSize, update }) {
       )}
       {availForSize.length > 0 && (
         <div style={{ marginTop: 12, fontSize: 12, color: "#9a9080" }}>
-          Total: <strong style={{ color: "#1a1a1a" }}>{fmt(availForSize.reduce((s, r) => s + Number(r.weight), 0))} kg</strong>
+          Total: <strong style={{ color: "#1a2a4a" }}>{fmt(availForSize.reduce((s, r) => s + Number(r.weight), 0))} kg</strong>
         </div>
       )}
       {/* Delete confirm modal */}
@@ -574,7 +576,7 @@ function SizeInwardHistory({ sz, inwardGroups }) {
     <div className="card">
       <h3>Inward History — all trucks that had {sz}"</h3>
       {groups.length === 0 ? (
-        <div style={{ fontSize: 13, color: "#b0a898", fontStyle: "italic" }}>No inward history.</div>
+        <div style={{ fontSize: 13, color: "#8aabcc", fontStyle: "italic" }}>No inward history.</div>
       ) : (
         <div style={{ border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
           {groups.map((grp, idx) => {
@@ -589,7 +591,7 @@ function SizeInwardHistory({ sz, inwardGroups }) {
                   onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = "#f0f4f9"; }}
                   onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}>
                   <div style={{ minWidth: 88, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>{fmtDate(grp.date)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1a2a4a" }}>{fmtDate(grp.date)}</div>
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 500, fontSize: 13 }}>{grp.supplier || "Unknown supplier"}</div>
@@ -630,7 +632,7 @@ function SizeOutwardHistory({ sz, challanList }) {
     <div className="card">
       <h3>Outward History — sales of {sz}"</h3>
       {sorted.length === 0 ? (
-        <div style={{ fontSize: 13, color: "#b0a898", fontStyle: "italic" }}>No sales recorded for this size yet.</div>
+        <div style={{ fontSize: 13, color: "#8aabcc", fontStyle: "italic" }}>No sales recorded for this size yet.</div>
       ) : (
         <div style={{ border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
           {sorted.map((ch, idx) => {
@@ -644,7 +646,7 @@ function SizeOutwardHistory({ sz, challanList }) {
                   onMouseEnter={e => { if (!isOpen) e.currentTarget.style.background = "#f0f4f9"; }}
                   onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}>
                   <div style={{ minWidth: 88, flexShrink: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1a1a" }}>{fmtDate(ch.date)}</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1a2a4a" }}>{fmtDate(ch.date)}</div>
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 500, fontSize: 13 }}>{ch.customer}</div>
@@ -677,133 +679,14 @@ function SizeOutwardHistory({ sz, challanList }) {
 }
 
 // ─── BULK IMPORT ─────────────────────────────────────────────────────────────
-function BulkImportView({ state, update, onBack }) {
-  const [rows, setRows] = useState([]);
-  const [status, setStatus] = useState("idle"); // idle | preview | importing | done | error
-  const [errMsg, setErrMsg] = useState("");
-  const fileRef = useRef(null);
-
-  const VALID_SHADES = ["golden", "natural"];
-
-  const handleFile = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        // Parse xlsx using SheetJS loaded via CDN — use raw binary
-        const data = evt.target.result;
-        // Manual CSV fallback — parse as ArrayBuffer using a simple approach
-        // We'll use the xlsx library imported at top
-        import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs').then(XLSX => {
-          const wb = XLSX.read(data, { type: "array" });
-          const ws = wb.Sheets[wb.SheetNames[0]];
-          const json = XLSX.utils.sheet_to_json(ws, { defval: "" });
-          const valid = [];
-          const errors = [];
-          json.forEach((row, i) => {
-            const bf = String(row.bf || "").trim();
-            const gsm = String(row.gsm || "").trim();
-            const shade = String(row.shade || "").trim().toLowerCase();
-            const size = String(row.size || "").trim();
-            const weight = String(row.weight || "").trim();
-            if (!bf && !gsm && !shade && !size && !weight) return; // skip empty
-            if (!bf || !gsm || !shade || !size || !weight) { errors.push(`Row ${i+2}: missing fields`); return; }
-            if (!VALID_SHADES.includes(shade)) { errors.push(`Row ${i+2}: shade must be 'golden' or 'natural'`); return; }
-            if (isNaN(Number(weight)) || Number(weight) <= 0) { errors.push(`Row ${i+2}: invalid weight`); return; }
-            valid.push({ bf, gsm, shade, size, weight: String(weight) });
-          });
-          if (errors.length > 0) { setErrMsg(errors.slice(0,5).join("\n") + (errors.length > 5 ? `\n...and ${errors.length-5} more` : "")); setStatus("error"); return; }
-          if (valid.length === 0) { setErrMsg("No valid rows found. Check your file."); setStatus("error"); return; }
-          setRows(valid);
-          setStatus("preview");
-        });
-      } catch(e) { setErrMsg("Could not read file: " + e.message); setStatus("error"); }
-    };
-    reader.readAsArrayBuffer(file);
-  };
-
-  const doImport = () => {
-    setStatus("importing");
-    const now = today();
-    const newReels = rows.map(r => ({
-      id: genId(), sold: false,
-      bf: r.bf, gsm: r.gsm, shade: r.shade, size: r.size, weight: r.weight,
-      supplier: "Opening Stock", invoiceNo: "BULK-IMPORT", inwardDate: now,
-    }));
-    update(s => { s.stock = [...s.stock, ...newReels]; });
-    setTimeout(() => setStatus("done"), 800);
-  };
-
-  // Group preview by grade
-  const byGrade = {};
-  rows.forEach(r => {
-    const k = `${r.bf} BF ${r.gsm} GSM ${r.shade}`;
-    if (!byGrade[k]) byGrade[k] = { reels: 0, sizes: {} };
-    byGrade[k].reels++;
-    byGrade[k].sizes[r.size] = (byGrade[k].sizes[r.size] || 0) + 1;
-  });
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }} className="fade-in">
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <button className="btn btn-outline btn-sm" onClick={onBack}>← Back</button>
-        <div><div className="section-eyebrow">Import</div><h2>Bulk Stock Import</h2></div>
-      </div>
-
-      {status === "done" ? (
-        <div className="card" style={{ textAlign: "center", padding: 52 }}>
-          <div style={{ fontSize: 44, marginBottom: 16 }}>✓</div>
-          <div className="serif" style={{ fontSize: 28 }}>Import Complete</div>
-          <div style={{ fontSize: 13, color: "#8a8070", marginTop: 8 }}>{rows.length} reels added to stock.</div>
-          <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={onBack}>Go to Stock</button>
-        </div>
-      ) : (
-        <>
-          <div className="card">
-            <h3>Upload your filled Excel file</h3>
-            <p style={{ fontSize: 13, color: "#6a6050", marginBottom: 14, lineHeight: 1.7 }}>
-              Columns required: <strong>bf · gsm · shade · size · weight</strong><br/>
-              All reels will be imported as Opening Stock dated today.
-            </p>
-            <input ref={fileRef} type="file" accept=".xlsx,.xls" onChange={handleFile} style={{ marginBottom: 12 }} />
-            {status === "error" && (
-              <div className="err-box" style={{ whiteSpace: "pre-line", marginTop: 8 }}>{errMsg}</div>
-            )}
-          </div>
-
-          {status === "preview" && (
-            <div className="card">
-              <h3>Preview — {rows.length} reels found</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 20 }}>
-                {Object.entries(byGrade).map(([grade, data]) => (
-                  <div key={grade} style={{ background: "#f0f4f9", borderRadius: 10, padding: "12px 16px" }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 8 }}>{grade} — {data.reels} reels</div>
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                      {Object.entries(data.sizes).sort((a,b) => Number(a[0])-Number(b[0])).map(([sz, cnt]) => (
-                        <span key={sz} className="tag" style={{ fontSize: 11 }}>{sz}" × {cnt}</span>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <button className="btn btn-dark" style={{ width: "100%", justifyContent: "center", fontSize: 15, padding: "12px" }}
-                onClick={doImport} disabled={status === "importing"}>
-                {status === "importing" ? "Importing…" : `✓ Import All ${rows.length} Reels`}
-              </button>
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
 // ─── STOCK (INWARD) ───────────────────────────────────────────────────────────
 function StockTab({ state, update, stockNav, clearStockNav }) {
   const [view, setView] = useState("list");
   const [filter, setFilter] = useState({ bf: "", gsm: "", shade: "", size: "", showSold: false });
   const [openShip, setOpenShip] = useState(null);
+  const [editShipKey, setEditShipKey] = useState(null); // shipment being rate-edited
+  const [shipRates, setShipRates] = useState({});       // "bf|gsm" -> {mode,rate,slabs}
+  const [editWeightKey, setEditWeightKey] = useState(null); // shipment being weight-edited
 
   useEffect(() => {
     if (stockNav?.size) {
@@ -892,7 +775,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
           Reels Added {reels.length > 0 && `— ${reels.length} reels, ${fmt(totalWt)} kg`}
         </h3>
         {reels.length === 0 && (
-          <div style={{ fontSize: 13, color: "#b0a898", fontStyle: "italic" }}>No reels yet — use the entry bar below to add.</div>
+          <div style={{ fontSize: 13, color: "#8aabcc", fontStyle: "italic" }}>No reels yet — use the entry bar below to add.</div>
         )}
         {Object.entries(bySizeMap).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, sr]) => {
           const sizeTotal = sr.reduce((s, r) => s + (Number(r.weight) || 0), 0);
@@ -905,9 +788,9 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {sr.map((r, i) => (
                   <div key={r.id} style={{ background: "#f2f5fb", border: "1px solid #dde5f0", borderRadius: 8, padding: "7px 10px", display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ fontSize: 10, color: "#b0a898", minWidth: 18 }}>#{i + 1}</span>
+                    <span style={{ fontSize: 10, color: "#8aabcc", minWidth: 18 }}>#{i + 1}</span>
                     <input type="number" value={r.weight} onChange={e => setReels(p => p.map(x => x.id === r.id ? { ...x, weight: e.target.value } : x))} style={{ width: 72, padding: "4px 8px", fontSize: 12 }} />
-                    <span style={{ fontSize: 10, color: "#b0a898" }}>kg</span>
+                    <span style={{ fontSize: 10, color: "#8aabcc" }}>kg</span>
                     <button style={{ background: "transparent", color: "#c0392b", border: "1px solid #f0c0ba", borderRadius: 4, padding: "2px 6px", fontSize: 10 }} onClick={() => setReels(p => p.filter(x => x.id !== r.id))}>✕</button>
                   </div>
                 ))}
@@ -930,11 +813,11 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
               <div key={gk} style={{ marginBottom: 14, padding: "12px 14px", background: "#f0f4f9", borderRadius: 10 }}>
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
                   <span style={{ fontWeight: 600, fontSize: 13 }}>{gradeLabel}</span>
-                  <span style={{ fontSize: 11, color: "#6a7a9a" }}>{fmt(Math.round(gradeKg))} kg</span>
+                  <span style={{ fontSize: 11, color: "#1e4d8c" }}>{fmt(Math.round(gradeKg))} kg</span>
                 </div>
                 <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: gr.mode === "slabs" ? 8 : 0 }}>
                   {gr.mode === "simple" ? (
-                    <input type="number" inputMode="numeric" value={gr.rate} placeholder="₹/kg e.g. 28"
+                    <input type="number" step="0.01" inputMode="numeric" value={gr.rate} placeholder="₹/kg e.g. 28"
                       onChange={e => setGradeRates(p => ({ ...p, [gk]: { ...gr, rate: e.target.value } }))}
                       style={{ flex: 1 }} />
                   ) : null}
@@ -950,8 +833,8 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                         <input type="number" inputMode="numeric" value={sl.kg} placeholder="kg"
                           style={{ flex: 1 }}
                           onChange={e => setGradeRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], kg: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
-                        <span style={{ fontSize: 12, color: "#6a7a9a", flexShrink: 0 }}>kg @</span>
-                        <input type="number" inputMode="numeric" value={sl.rate} placeholder="₹/kg"
+                        <span style={{ fontSize: 12, color: "#1e4d8c", flexShrink: 0 }}>kg @</span>
+                        <input type="number" step="0.01" inputMode="numeric" value={sl.rate} placeholder="₹/kg"
                           style={{ flex: 1 }}
                           onChange={e => setGradeRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], rate: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
                         {gr.slabs.length > 1 && <button onClick={() => setGradeRates(p => { const slabs = p[gk].slabs.filter((_, i) => i !== si); return { ...p, [gk]: { ...p[gk], slabs } }; })} style={{ background: "transparent", color: "#b83020", border: "none", fontSize: 14, cursor: "pointer" }}>✕</button>}
@@ -961,7 +844,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                       onClick={() => setGradeRates(p => ({ ...p, [gk]: { ...p[gk], slabs: [...p[gk].slabs, { kg: "", rate: "" }] } }))}>
                       + Add slab
                     </button>
-                    <div style={{ fontSize: 11, color: "#6a7a9a", fontStyle: "italic" }}>Remaining kg auto-assigned to last slab rate</div>
+                    <div style={{ fontSize: 11, color: "#1e4d8c", fontStyle: "italic" }}>Remaining kg auto-assigned to last slab rate</div>
                   </div>
                 )}
               </div>
@@ -996,8 +879,17 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, borderTop: "1px solid #e8eef8" }}>
             <div style={{ fontSize: 13, color: "#8a8070" }}>
-              Total: <span className="serif" style={{ fontSize: 20, color: "#1a1a1a" }}>{fmt(totalWt)} kg</span>
-              <span style={{ fontSize: 11, color: "#b0a898", marginLeft: 6 }}>({reels.length} reels)</span>
+              Total: <span className="serif" style={{ fontSize: 20, color: "#1a2a4a" }}>{fmt(totalWt)} kg</span>
+              <span style={{ fontSize: 11, color: "#8aabcc", marginLeft: 6 }}>({reels.length} reels)</span>
+              {(() => {
+                const shipVal = Object.entries(gradeRates).reduce((s, [gk, gr]) => {
+                  const [bf, gsm] = gk.split("|");
+                  const gradeKg = reels.filter(r => r.bf === bf && r.gsm === gsm).reduce((ss, r) => ss + Number(r.weight), 0);
+                  const rate = gr.mode === "simple" ? Number(gr.rate)||0 : computeWeightedCostRate(gr.slabs, gradeKg);
+                  return s + rate * gradeKg;
+                }, 0);
+                return shipVal > 0 ? <span style={{ display: "block", fontSize: 12, color: "#1e4d8c", fontWeight: 700, marginTop: 2 }}>{fmtRs(shipVal)} shipment value</span> : null;
+              })()}
             </div>
             <button className="btn btn-dark" onClick={submit} disabled={reels.length === 0 || !form.supplier}>✓ Save</button>
           </div>
@@ -1041,7 +933,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
           <div key={`${gd.bf}|${gd.gsm}|${gd.shade}`} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {gradeData.length > 1 && (
               <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 16px", background: "#eef3fb", border: "1px solid #c8d8f0", borderRadius: 10 }}>
-                <span className="serif" style={{ fontSize: 18, color: "#1a1a1a" }}>{gd.bf} BF · {gd.gsm} GSM</span>
+                <span className="serif" style={{ fontSize: 18, color: "#1a2a4a" }}>{gd.bf} BF · {gd.gsm} GSM</span>
                 <span className="tag" style={{ textTransform: "capitalize" }}>{gd.shade}</span>
                 <span style={{ fontSize: 12, color: "#9a9080", marginLeft: 2 }}>
                   {gd.availForGrade.length} available · {gd.availForGrade.reduce((s, r) => s + Number(r.weight), 0) > 0 ? fmt(gd.availForGrade.reduce((s, r) => s + Number(r.weight), 0)) + " kg" : "0 kg"}
@@ -1075,7 +967,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
         </div>
         {shipList.length === 0 ? (
           <div className="card" style={{ textAlign: "center", padding: 40 }}>
-            <span className="serif-italic" style={{ fontSize: 17, color: "#b0a898" }}>No inward entries yet.</span>
+            <span className="serif-italic" style={{ fontSize: 17, color: "#8aabcc" }}>No inward entries yet.</span>
           </div>
         ) : (
           <div className="card-flat">
@@ -1097,14 +989,15 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                     onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600, fontSize: 14, color: "#1a1a1a" }}>{sh.supplier}</span>
+                        <span style={{ fontWeight: 600, fontSize: 14, color: "#1a2a4a" }}>{sh.supplier}</span>
                         <span className="tag tag-green" style={{ fontSize: 10 }}>{sh.reels.length} reels</span>
                         {availCount < sh.reels.length && <span className="tag tag-red" style={{ fontSize: 10 }}>{sh.reels.length - availCount} sold</span>}
+                        {sh.reels.some(r => !r.costRate) && <span style={{ fontSize: 10, background: "#fef5e8", border: "1px solid #f0d5a0", borderRadius: 4, padding: "1px 6px", color: "#a05800", fontWeight: 600 }}>⚠ no cost rate</span>}
                       </div>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                         <span style={{ fontSize: 11, color: "#9a9080", fontWeight: 500 }}>{fmtDate(sh.date)}</span>
-                        {sh.invoiceNo && <><span style={{ fontSize: 10, color: "#d0c8bc" }}>·</span><span style={{ fontSize: 11, color: "#9a9080" }}>{sh.invoiceNo}</span></>}
-                        <span style={{ fontSize: 10, color: "#d0c8bc" }}>·</span>
+                        {sh.invoiceNo && <><span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span><span style={{ fontSize: 11, color: "#9a9080" }}>{sh.invoiceNo}</span></>}
+                        <span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span>
                         <span style={{ fontSize: 11, color: "#6a6050", fontWeight: 500 }}>{fmt(Math.round(totalWt))} kg</span>
                         {Object.keys(bySizeInShip).sort((a, b) => Number(a) - Number(b)).slice(0, 4).map(sz => (
                           <span key={sz} className="tag" style={{ fontSize: 10 }}>{sz}"</span>
@@ -1116,31 +1009,170 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                   </div>
                   {isOpen && (
                     <div style={{ background: "#f0f4f9", borderTop: "1px solid #dde8f5", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
-                      {Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => {
-                        const szTotal = reels.reduce((s, r) => s + Number(r.weight), 0);
-                        return (
-                          <div key={sz}>
-                            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <span className="serif" style={{ fontSize: 20 }}>{sz}"</span>
-                                <span className="tag" style={{ fontSize: 10 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
-                                <span style={{ fontSize: 11, color: "#9a9080" }}>{reels.length} reel{reels.length !== 1 ? "s" : ""}</span>
+
+                      {/* Action buttons */}
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button className="btn btn-outline btn-sm"
+                          onClick={() => {
+                            if (editShipKey === key) { setEditShipKey(null); return; }
+                            // Seed rates from existing costRate on reels
+                            const grades = {};
+                            sh.reels.forEach(r => {
+                              const k2 = `${r.bf}|${r.gsm}`;
+                              if (!grades[k2]) grades[k2] = { mode: "simple", rate: String(r.costRate || ""), slabs: [{ kg: "", rate: String(r.costRate || "") }] };
+                            });
+                            setShipRates(grades);
+                            setEditShipKey(key);
+                            setEditWeightKey(null);
+                          }}>
+                          {editShipKey === key ? "✕ Cancel" : "₹ Edit Cost Rates"}
+                        </button>
+                        <button className="btn btn-outline btn-sm"
+                          onClick={() => { setEditWeightKey(editWeightKey === key ? null : key); setEditShipKey(null); }}>
+                          {editWeightKey === key ? "✕ Cancel" : "✏ Edit Weights"}
+                        </button>
+                      </div>
+
+                      {/* Cost rate edit panel */}
+                      {editShipKey === key && (
+                        <div style={{ background: "#fff", border: "1.5px solid #1e4d8c", borderRadius: 10, padding: "14px 16px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#1e4d8c", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Set Cost Rate per Grade</div>
+                          {[...new Set(sh.reels.map(r => `${r.bf}|${r.gsm}`))].map(gk => {
+                            const [gbf, ggsm] = gk.split("|");
+                            const gr = shipRates[gk] || { mode: "simple", rate: "", slabs: [{ kg: "", rate: "" }] };
+                            const gradeKg = sh.reels.filter(r => r.bf === gbf && r.gsm === ggsm).reduce((s, r) => s + Number(r.weight), 0);
+                            return (
+                              <div key={gk} style={{ marginBottom: 12, padding: "10px 12px", background: "#f0f4f9", borderRadius: 8 }}>
+                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                                  <span style={{ fontWeight: 600, fontSize: 13 }}>{gbf} BF {ggsm} GSM</span>
+                                  <span style={{ fontSize: 11, color: "#9a9080" }}>{fmt(Math.round(gradeKg))} kg</span>
+                                </div>
+                                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: gr.mode === "slabs" ? 8 : 0 }}>
+                                  {gr.mode === "simple" && (
+                                    <input type="number" step="0.01" inputMode="numeric" value={gr.rate} placeholder="₹/kg e.g. 28"
+                                      onChange={e => setShipRates(p => ({ ...p, [gk]: { ...gr, rate: e.target.value } }))}
+                                      style={{ flex: 1 }} />
+                                  )}
+                                  <button className="btn btn-outline btn-sm" style={{ fontSize: 11, flexShrink: 0 }}
+                                    onClick={() => setShipRates(p => ({ ...p, [gk]: { ...gr, mode: gr.mode === "simple" ? "slabs" : "simple" } }))}>
+                                    {gr.mode === "simple" ? "+ Split" : "Simple"}
+                                  </button>
+                                </div>
+                                {gr.mode === "slabs" && (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                                    {gr.slabs.map((sl, si) => (
+                                      <div key={si} style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                                        <input type="number" inputMode="numeric" value={sl.kg} placeholder="kg" style={{ flex: 1 }}
+                                          onChange={e => setShipRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], kg: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
+                                        <span style={{ fontSize: 11, color: "#9a9080" }}>kg @</span>
+                                        <input type="number" step="0.01" inputMode="numeric" value={sl.rate} placeholder="₹/kg" style={{ flex: 1 }}
+                                          onChange={e => setShipRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], rate: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
+                                        {gr.slabs.length > 1 && <button onClick={() => setShipRates(p => { const slabs = p[gk].slabs.filter((_,i) => i !== si); return { ...p, [gk]: { ...p[gk], slabs } }; })} style={{ background: "transparent", color: "#b83020", border: "none", fontSize: 14, cursor: "pointer" }}>✕</button>}
+                                      </div>
+                                    ))}
+                                    <button className="btn btn-outline btn-sm" style={{ alignSelf: "flex-start", fontSize: 11 }}
+                                      onClick={() => setShipRates(p => ({ ...p, [gk]: { ...p[gk], slabs: [...p[gk].slabs, { kg: "", rate: "" }] } }))}>+ Add slab</button>
+                                    <div style={{ fontSize: 10, color: "#9a9080", fontStyle: "italic" }}>Remaining kg assigned to last slab rate</div>
+                                  </div>
+                                )}
                               </div>
-                              <span style={{ fontSize: 11, fontWeight: 600, color: "#6a6050" }}>{fmt(Math.round(szTotal))} kg</span>
+                            );
+                          })}
+                          <button className="btn btn-dark btn-sm" style={{ width: "100%", justifyContent: "center" }}
+                            onClick={() => {
+                              // Assign costRate to all reels in this shipment
+                              const gradeKgs = {};
+                              sh.reels.forEach(r => {
+                                const k2 = `${r.bf}|${r.gsm}`;
+                                if (!gradeKgs[k2]) gradeKgs[k2] = 0;
+                                gradeKgs[k2] += Number(r.weight);
+                              });
+                              update(s => {
+                                s.stock = s.stock.map(r => {
+                                  if (!sh.reels.some(x => x.id === r.id)) return r;
+                                  const k2 = `${r.bf}|${r.gsm}`;
+                                  const gr = shipRates[k2];
+                                  if (!gr) return r;
+                                  const costRate = gr.mode === "simple"
+                                    ? Number(gr.rate) || 0
+                                    : computeWeightedCostRate(gr.slabs, gradeKgs[k2]);
+                                  return { ...r, costRate };
+                                });
+                              });
+                              setEditShipKey(null);
+                            }}>
+                            ✓ Save Rates to All Reels
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Weight edit panel */}
+                      {editWeightKey === key && (
+                        <div style={{ background: "#fff", border: "1.5px solid #dde5f0", borderRadius: 10, padding: "14px 16px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6a6050", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit Reel Weights</div>
+                          {Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => (
+                            <div key={sz} style={{ marginBottom: 14 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                <span className="serif" style={{ fontSize: 18 }}>{sz}"</span>
+                                <span className="tag" style={{ fontSize: 10 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                                {reels.map((r, i) => (
+                                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 5, background: "#f4f7fb", border: "1px solid #dde5f0", borderRadius: 7, padding: "5px 8px" }}>
+                                    <span style={{ fontSize: 10, color: "#8aabcc" }}>#{i+1}</span>
+                                    <input type="number" inputMode="numeric" defaultValue={r.weight}
+                                      onBlur={e => {
+                                        const newWt = e.target.value;
+                                        if (newWt && !isNaN(newWt) && newWt !== String(r.weight)) {
+                                          update(s => { const idx = s.stock.findIndex(x => x.id === r.id); if (idx !== -1) s.stock[idx].weight = newWt; });
+                                        }
+                                      }}
+                                      style={{ width: 72, padding: "3px 6px", fontSize: 12 }} />
+                                    <span style={{ fontSize: 10, color: "#8aabcc" }}>kg</span>
+                                    {r.sold && <span style={{ fontSize: 9, color: "#c07060" }}>sold</span>}
+                                  </div>
+                                ))}
+                              </div>
                             </div>
-                            <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
-                              {reels.sort((a, b) => Number(a.weight) - Number(b.weight)).map((r, i) => (
-                                <span key={r.id} style={{ background: r.sold ? "#fef0ee" : "#edf7f0", border: `1px solid ${r.sold ? "#f0c0ba" : "#b5dcc0"}`, borderRadius: 5, padding: "3px 9px", fontSize: 12, color: r.sold ? "#9a4030" : "#2d6a4f", fontWeight: 500 }}>
-                                  {fmt(r.weight)} kg{r.sold ? " · sold" : ""}
-                                </span>
-                              ))}
+                          ))}
+                          <div style={{ fontSize: 11, color: "#9a9080", fontStyle: "italic", marginTop: 4 }}>Changes save automatically when you tap out of a field.</div>
+                        </div>
+                      )}
+
+                      {/* Size breakdown (read-only when not editing) */}
+                      {editShipKey !== key && editWeightKey !== key && (
+                        Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => {
+                          const szTotal = reels.reduce((s, r) => s + Number(r.weight), 0);
+                          const costSet = reels.some(r => r.costRate);
+                          return (
+                            <div key={sz}>
+                              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                  <span className="serif" style={{ fontSize: 20 }}>{sz}"</span>
+                                  <span className="tag" style={{ fontSize: 10 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
+                                  <span style={{ fontSize: 11, color: "#9a9080" }}>{reels.length} reel{reels.length !== 1 ? "s" : ""}</span>
+                                  {costSet && <span style={{ fontSize: 10, color: "#2d6a4f", fontWeight: 600 }}>{fmtRate(reels[0].costRate)}/kg</span>}
+                                </div>
+                                <span style={{ fontSize: 11, fontWeight: 600, color: "#6a6050" }}>{fmt(Math.round(szTotal))} kg</span>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                                {reels.sort((a, b) => Number(a.weight) - Number(b.weight)).map(r => (
+                                  <span key={r.id} style={{ background: r.sold ? "#fef0ee" : "#edf7f0", border: `1px solid ${r.sold ? "#f0c0ba" : "#b5dcc0"}`, borderRadius: 5, padding: "3px 9px", fontSize: 12, color: r.sold ? "#9a4030" : "#2d6a4f", fontWeight: 500 }}>
+                                    {fmt(r.weight)} kg{r.sold ? " · sold" : ""}
+                                  </span>
+                                ))}
+                              </div>
                             </div>
-                          </div>
-                        );
-                      })}
-                      <div style={{ borderTop: "1px solid #dde5f0", paddingTop: 10, display: "flex", justifyContent: "flex-end", gap: 20, fontSize: 12 }}>
+                          );
+                        })
+                      )}
+
+                      <div style={{ borderTop: "1px solid #dde5f0", paddingTop: 10, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                         <span style={{ color: "#9a9080" }}>{sh.reels.length} reels · {availCount} available</span>
-                        <span style={{ fontWeight: 600, color: "#1a1a1a" }}>{fmt(Math.round(totalWt))} kg total</span>
+                        <div style={{ textAlign: "right" }}>
+                          <span style={{ fontWeight: 600, color: "#1a2a4a" }}>{fmt(Math.round(totalWt))} kg total</span>
+                          {(() => { const shipVal = sh.reels.reduce((s, r) => s + (Number(r.costRate)||0)*Number(r.weight), 0); return shipVal > 0 ? <span style={{ display: "block", fontSize: 12, color: "#1e4d8c", fontWeight: 700 }}>{fmtRs(shipVal)} cost value</span> : null; })()}
+                        </div>
                       </div>
                     </div>
                   )}
@@ -1154,8 +1186,6 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
   }
 
   // ── BULK IMPORT VIEW ──
-  if (view === "import") {
-    return <BulkImportView state={state} update={update} onBack={() => setView("list")} />;
   }
 
   // ── LIST VIEW ──
@@ -1182,7 +1212,6 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
         <div><div className="section-eyebrow">Inventory</div><h2>Stock Register</h2></div>
         <div style={{ display: "flex", gap: 8 }}>
           <button className="btn btn-outline" onClick={() => setView("inward")}>📋 Inward History</button>
-          <button className="btn btn-outline" onClick={() => setView("import")} style={{ borderColor: "#1e4d8c", color: "#1e4d8c" }}>📥 Bulk Import</button>
           <button className="btn btn-dark" onClick={() => { setView("add"); setSaved(false); setReels([]); }}>+ Add Inward</button>
         </div>
       </div>
@@ -1218,7 +1247,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
       </div>
       {sizeGroups.length === 0 ? (
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
-          <span className="serif-italic" style={{ fontSize: 17, color: "#b0a898" }}>No stock matches the filter.</span>
+          <span className="serif-italic" style={{ fontSize: 17, color: "#8aabcc" }}>No stock matches the filter.</span>
         </div>
       ) : (
         <div className="card-flat">
@@ -1235,13 +1264,13 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                 onMouseLeave={e => e.currentTarget.style.background = "transparent"}>
                 {/* Line 1: size + grade + count + status + arrow */}
                 <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: grp.reels.length > 0 ? 6 : 0 }}>
-                  <span className="serif" style={{ fontSize: 26, lineHeight: 1, color: isCritical ? "#a05800" : isModerate ? "#1e3a6e" : "#1a1a1a", minWidth: 48, flexShrink: 0 }}>{grp.size}"</span>
+                  <span className="serif" style={{ fontSize: 26, lineHeight: 1, color: isCritical ? "#a05800" : isModerate ? "#1e3a6e" : "#1a2a4a", minWidth: 48, flexShrink: 0 }}>{grp.size}"</span>
                   <span className="tag" style={{ flexShrink: 0, fontSize: 11 }}>{grp.bf} BF · {grp.gsm} GSM</span>
                   <div style={{ flex: 1 }} />
                   <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
                     {grp.reels.length === 0
-                      ? <span style={{ fontSize: 11, color: "#b0a898", fontStyle: "italic" }}>No stock</span>
-                      : <span style={{ fontSize: 12, fontWeight: 600, color: isCritical ? "#a05800" : "#1a1a1a" }}>{grp.reels.length} reel{grp.reels.length !== 1 ? "s" : ""}</span>
+                      ? <span style={{ fontSize: 11, color: "#8aabcc", fontStyle: "italic" }}>No stock</span>
+                      : <span style={{ fontSize: 12, fontWeight: 600, color: isCritical ? "#a05800" : "#1a2a4a" }}>{grp.reels.length} reel{grp.reels.length !== 1 ? "s" : ""}</span>
                     }
                     {isCritical && <span className="tag tag-orange" style={{ fontSize: 10 }}>Low</span>}
                     {isModerate && <span className="tag tag-blue" style={{ fontSize: 10 }}>3 left</span>}
@@ -1384,11 +1413,11 @@ function SellTab({ state, update }) {
               return (
                 <div key={k} style={{ display: "flex", alignItems: "center", gap: 10 }}>
                   <span style={{ minWidth: 140, fontSize: 12, fontWeight: 500 }}>{g.bf} BF {g.gsm} GSM</span>
-                  <input type="number" inputMode="numeric" value={rate} placeholder="₹/kg"
+                  <input type="number" step="0.01" inputMode="numeric" value={rate} placeholder="₹/kg"
                     onChange={e => setSellRates(p => ({ ...p, [k]: e.target.value }))}
                     style={{ width: 110 }} />
                   {selKg > 0 && rate && <span style={{ fontSize: 12, color: "#1e4d8c", fontWeight: 600 }}>{fmtRs(selKg * Number(rate))}</span>}
-                  {selKg > 0 && !rate && <span style={{ fontSize: 11, color: "#b0a898", fontStyle: "italic" }}>rate not set</span>}
+                  {selKg > 0 && !rate && <span style={{ fontSize: 11, color: "#8aabcc", fontStyle: "italic" }}>rate not set</span>}
                 </div>
               );
             })}
@@ -1417,7 +1446,7 @@ function SellTab({ state, update }) {
         </div>
         {noStockWarning && <div className="err-box" style={{ marginBottom: 12 }}>✗ {noStockWarning}</div>}
         {filtered.length === 0 ? (
-          <div style={{ textAlign: "center", padding: 28, color: "#b0a898" }}><span className="serif-italic">No available stock matching filter.</span></div>
+          <div style={{ textAlign: "center", padding: 28, color: "#8aabcc" }}><span className="serif-italic">No available stock matching filter.</span></div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 0, border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
             {filtered.map((r, idx) => {
@@ -1430,8 +1459,8 @@ function SellTab({ state, update }) {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3 }}>
-                      <span className="serif" style={{ fontSize: 22, lineHeight: 1, color: "#1a1a1a" }}>{r.size}"</span>
-                      <span style={{ fontWeight: 600, fontSize: 14, color: "#1a1a1a" }}>{fmt(r.weight)} kg</span>
+                      <span className="serif" style={{ fontSize: 22, lineHeight: 1, color: "#1a2a4a" }}>{r.size}"</span>
+                      <span style={{ fontWeight: 600, fontSize: 14, color: "#1a2a4a" }}>{fmt(r.weight)} kg</span>
                       <span className="tag" style={{ fontSize: 10 }}>{r.bf} BF · {r.gsm} GSM</span>
                     </div>
                     <div style={{ fontSize: 11, color: "#9a9080" }}>
@@ -1476,6 +1505,10 @@ function HistoryTab({ state, update }) {
   const [custView, setCustView] = useState("challans"); // "challans" | "customers" | "customerDetail"
   const [selCustomer, setSelCustomer] = useState("");
   const [custSearch, setCustSearch] = useState("");
+  const [ledgerTab, setLedgerTab] = useState("overview"); // "overview"|"rates"|"history"
+  const [bulkForm, setBulkForm] = useState({ grade: "", rate: "", fromDate: "", toDate: today() });
+  const [bulkPreview, setBulkPreview] = useState(null);
+  const [bulkDone, setBulkDone] = useState(false);
 
   const sold = state.stock.filter(r => r.sold);
   const challanMap = {};
@@ -1586,7 +1619,7 @@ function HistoryTab({ state, update }) {
       />
       {Object.keys(custStats).length === 0 ? (
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
-          <span className="serif-italic" style={{ fontSize: 17, color: "#b0a898" }}>No customers yet.</span>
+          <span className="serif-italic" style={{ fontSize: 17, color: "#8aabcc" }}>No customers yet.</span>
         </div>
       ) : (
         <div className="card-flat">
@@ -1613,7 +1646,7 @@ function HistoryTab({ state, update }) {
                   </div>
                   <div style={{ textAlign: "right", flexShrink: 0 }}>
                     <div style={{ fontSize: 12, color: "#6a6050", fontWeight: 500 }}>{(cs.kg / 1000).toFixed(2)} t</div>
-                    <div style={{ fontSize: 10, color: "#b0a898", marginTop: 2 }}>Last: {fmtDate(cs.lastDate)}</div>
+                    <div style={{ fontSize: 10, color: "#8aabcc", marginTop: 2 }}>Last: {fmtDate(cs.lastDate)}</div>
                   </div>
                   <div style={{ color: "#a0b8d8", fontSize: 16 }}>›</div>
                 </div>
@@ -1621,7 +1654,7 @@ function HistoryTab({ state, update }) {
             );
           })}
           {custSearch && Object.entries(custStats).filter(([name]) => name.toLowerCase().includes(custSearch.toLowerCase())).length === 0 && (
-            <div style={{ padding: 28, textAlign: "center", fontSize: 13, color: "#b0a898", fontStyle: "italic" }}>No customers match "{custSearch}"</div>
+            <div style={{ padding: 28, textAlign: "center", fontSize: 13, color: "#8aabcc", fontStyle: "italic" }}>No customers match "{custSearch}"</div>
           )}
         </div>
       )}
@@ -1637,17 +1670,95 @@ function HistoryTab({ state, update }) {
     const custChallans = Object.values(challanMap).filter(c => (c.customer || "") === selCustomer);
     const revenue = custChallans.reduce((s, ch) => s + ch.reels.reduce((ss, r) => ss + (Number(r.soldRate) || 0) * Number(r.weight), 0), 0);
     const profit = custChallans.reduce((s, ch) => s + ch.reels.reduce((ss, r) => ss + ((Number(r.soldRate) || 0) - (Number(r.costRate) || 0)) * Number(r.weight), 0), 0);
-    return { cs, cd, revenue, profit };
+    return { cs, cd, revenue, profit, custChallans };
   })() : null;
+
+  // Bulk apply: compute preview
+  const computeBulkPreview = (form) => {
+    if (!form.grade || !form.rate || !form.fromDate || !selCustomer) return null;
+    const [bf, gsm] = form.grade.split("|");
+    const affected = state.stock.filter(r =>
+      r.sold && r.soldTo === selCustomer &&
+      r.bf === bf && r.gsm === gsm &&
+      r.soldDate >= form.fromDate && r.soldDate <= form.toDate
+    );
+    const challansAffected = [...new Set(affected.map(r => r.soldChallanNo || r.soldDate))];
+    return { reels: affected.length, challans: challansAffected.length, kg: affected.reduce((s, r) => s + Number(r.weight), 0) };
+  };
+
+  const doBulkApply = () => {
+    if (!bulkForm.grade || !bulkForm.rate || !bulkForm.fromDate) return;
+    const [bf, gsm] = bulkForm.grade.split("|");
+    update(s => {
+      s.stock = s.stock.map(r => {
+        if (!r.sold || r.soldTo !== selCustomer) return r;
+        if (r.bf !== bf || r.gsm !== gsm) return r;
+        if (r.soldDate < bulkForm.fromDate || r.soldDate > bulkForm.toDate) return r;
+        return { ...r, soldRate: Number(bulkForm.rate) };
+      });
+      if (!s.customerData) s.customerData = {};
+      if (!s.customerData[selCustomer]) s.customerData[selCustomer] = { rateHistory: {} };
+      const hist = s.customerData[selCustomer].rateHistory[bulkForm.grade] || [];
+      const entry = { rate: Number(bulkForm.rate), from: bulkForm.fromDate, to: bulkForm.toDate };
+      const exists = hist.some(h => h.rate === entry.rate && h.from === entry.from);
+      if (!exists) s.customerData[selCustomer].rateHistory[bulkForm.grade] = [...hist, entry].sort((a,b) => a.from.localeCompare(b.from));
+    });
+    setBulkDone(true); setBulkPreview(null);
+    setTimeout(() => setBulkDone(false), 2500);
+  };
+
+  // Rate trend SVG chart per grade
+  const RateTrendChart = ({ hist, color = "#1e4d8c" }) => {
+    if (!hist || hist.length < 1) return <div style={{ fontSize: 12, color: "#8aabcc", fontStyle: "italic" }}>No rate history yet.</div>;
+    const w = 280, h = 100, padL = 44, padB = 24, padT = 10, padR = 10;
+    const points = hist.map((h, i) => ({ x: h.from, rate: h.rate, label: fmtDate(h.from) }));
+    // Add "today" as last point
+    const today2 = today();
+    if (points[points.length - 1].x !== today2) points.push({ x: today2, rate: points[points.length - 1].rate, label: "Today" });
+    const rates = points.map(p => p.rate);
+    const minR = Math.min(...rates) * 0.97, maxR = Math.max(...rates) * 1.03;
+    const xScale = i => padL + (i / (points.length - 1)) * (w - padL - padR);
+    const yScale = r => padT + (1 - (r - minR) / (maxR - minR || 1)) * (h - padT - padB);
+    const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(i).toFixed(1)},${yScale(p.rate).toFixed(1)}`).join(" ");
+    const areaD = pathD + ` L${xScale(points.length-1).toFixed(1)},${h - padB} L${padL},${h - padB} Z`;
+    return (
+      <svg width="100%" viewBox={`0 0 ${w} ${h + 10}`} style={{ overflow: "visible" }}>
+        {/* Grid lines */}
+        {[0, 0.5, 1].map(t => {
+          const y = padT + t * (h - padT - padB);
+          const val = maxR - t * (maxR - minR);
+          return <g key={t}>
+            <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="#dde5f0" strokeWidth="1" strokeDasharray="3,3"/>
+            <text x={padL - 4} y={y + 4} fontSize="8" textAnchor="end" fill="#9a9080">{fmtRs(Math.round(val))}</text>
+          </g>;
+        })}
+        {/* Area fill */}
+        <path d={areaD} fill={color} opacity="0.08"/>
+        {/* Line */}
+        <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round"/>
+        {/* Points + labels */}
+        {points.map((p, i) => (
+          <g key={i}>
+            <circle cx={xScale(i)} cy={yScale(p.rate)} r="3.5" fill={color}/>
+            <text x={xScale(i)} y={h - padB + 14} fontSize="7.5" textAnchor="middle" fill="#9a9080"
+              transform={points.length > 4 ? `rotate(-30, ${xScale(i)}, ${h - padB + 14})` : ""}>
+              {p.label}
+            </text>
+          </g>
+        ))}
+      </svg>
+    );
+  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} className="fade-in">
       {isCustomerDetail ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button className="btn btn-outline btn-sm" onClick={() => { setCustView("customers"); setSelCustomer(""); setFilterCustomer(""); }}>← Customers</button>
+            <button className="btn btn-outline btn-sm" onClick={() => { setCustView("customers"); setSelCustomer(""); setFilterCustomer(""); setLedgerTab("overview"); }}>← Customers</button>
             <div><div className="section-eyebrow">Customer Ledger</div><h2>{selCustomer}</h2></div>
           </div>
+
           {/* Stats row */}
           {custLedger && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -1659,41 +1770,160 @@ function HistoryTab({ state, update }) {
                 { label: "Profit", val: custLedger.profit ? fmtRs(custLedger.profit) : "—" },
               ].map(s => (
                 <div key={s.label} style={{ background: "#fff", border: "1px solid #dde5f0", borderRadius: 10, padding: "10px 14px", flex: 1, minWidth: 80, textAlign: "center" }}>
-                  <div style={{ fontSize: 10, color: "#6a7a9a", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{s.label}</div>
+                  <div style={{ fontSize: 10, color: "#1e4d8c", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{s.label}</div>
                   <div style={{ fontWeight: 700, fontSize: 15, color: s.label === "Profit" && custLedger.profit < 0 ? "#b83020" : "#1a2a4a" }}>{s.val}</div>
                 </div>
               ))}
             </div>
           )}
-          {/* Rate card - current rates + history */}
-          {custLedger && (
+
+          {/* Ledger tabs */}
+          <div style={{ display: "flex", gap: 4, background: "#eef3fb", borderRadius: 10, padding: 4 }}>
+            {[["overview","📊 Overview"], ["rates","₹ Bulk Apply"], ["history","📈 Rate History"]].map(([tab, label]) => (
+              <button key={tab} onClick={() => setLedgerTab(tab)}
+                style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: "none", background: ledgerTab === tab ? "#fff" : "transparent", color: ledgerTab === tab ? "#1a2a4a" : "#1e4d8c", fontWeight: ledgerTab === tab ? 600 : 400, fontSize: 12, cursor: "pointer", boxShadow: ledgerTab === tab ? "0 1px 4px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s" }}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {/* OVERVIEW TAB — current rate card + top sizes */}
+          {ledgerTab === "overview" && custLedger && (
             <div className="card" style={{ padding: "14px 16px" }}>
-              <h3 style={{ marginBottom: 12 }}>Rate Card — ₹/kg per grade</h3>
-              <div style={{ display: "flex", flexDirection: "column", gap: 0, border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
+              <h3 style={{ marginBottom: 12 }}>Current Rate Card <span style={{ fontSize: 11, color: "#9a9080", fontWeight: 400 }}>— tap a rate to edit</span></h3>
+              <div style={{ border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
                 {state.grades.map((g, gi) => {
                   const k = `${g.bf}|${g.gsm}`;
                   const hist = custLedger.cd?.rateHistory?.[k] || [];
                   const currentRate = hist.length ? hist[hist.length - 1].rate : null;
+                  const gradeRev = custLedger.custChallans.reduce((s, ch) => s + ch.reels.filter(r => r.bf === g.bf && r.gsm === g.gsm).reduce((ss, r) => ss + (Number(r.soldRate)||0)*Number(r.weight), 0), 0);
                   return (
-                    <div key={k} style={{ padding: "10px 14px", borderBottom: gi < state.grades.length - 1 ? "1px solid #eef2f8" : "none", display: "flex", alignItems: "center", gap: 12 }}>
-                      <div style={{ flex: 1, fontSize: 13, fontWeight: 500 }}>{g.bf} BF {g.gsm} GSM <span className="tag" style={{ fontSize: 10, textTransform: "capitalize", marginLeft: 4 }}>{g.shade}</span></div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: currentRate ? "#1a2a4a" : "#b0a898" }}>{currentRate ? fmtRs(currentRate) + "/kg" : "Not set"}</div>
-                      {hist.length > 1 && (
-                        <div style={{ fontSize: 10, color: "#6a7a9a" }}>
-                          {hist.slice(-3).reverse().slice(1).map((h, i) => (
-                            <div key={i}>{fmtRs(h.rate)}/kg from {fmtDate(h.from)}</div>
-                          ))}
-                        </div>
-                      )}
+                    <div key={k} style={{ padding: "11px 14px", borderBottom: gi < state.grades.length - 1 ? "1px solid #eef3fb" : "none", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <div style={{ flex: 1, fontSize: 13, fontWeight: 500, minWidth: 120 }}>{g.bf} BF {g.gsm} GSM</div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        <input type="number" step="0.01" inputMode="decimal"
+                          defaultValue={currentRate || ""}
+                          placeholder="₹/kg"
+                          onBlur={e => {
+                            const newRate = parseFloat(e.target.value);
+                            if (!e.target.value || isNaN(newRate)) return;
+                            if (newRate === currentRate) return;
+                            update(s => {
+                              if (!s.customerData) s.customerData = {};
+                              if (!s.customerData[selCustomer]) s.customerData[selCustomer] = { rateHistory: {} };
+                              const h = s.customerData[selCustomer].rateHistory[k] || [];
+                              s.customerData[selCustomer].rateHistory[k] = [...h, { rate: newRate, from: today() }];
+                            });
+                          }}
+                          style={{ width: 90, padding: "5px 8px", fontSize: 13, fontWeight: 600 }} />
+                        <span style={{ fontSize: 11, color: "#9a9080" }}>/kg</span>
+                        {gradeRev > 0 && <span style={{ fontSize: 11, color: "#1e4d8c", marginLeft: 4 }}>{fmtRs(gradeRev)}</span>}
+                      </div>
                     </div>
                   );
                 })}
               </div>
               {custLedger.cs.sizes && (
-                <div style={{ marginTop: 12, fontSize: 12, color: "#6a7a9a" }}>
-                  Top sizes: {Object.entries(custLedger.cs.sizes).sort((a,b) => b[1]-a[1]).slice(0,4).map(([sz,cnt]) => `${sz}" (${cnt}×)`).join(" · ")}
+                <div style={{ marginTop: 12, fontSize: 12, color: "#1e4d8c" }}>
+                  Top sizes: {Object.entries(custLedger.cs.sizes).sort((a,b) => b[1]-a[1]).slice(0,5).map(([sz,cnt]) => `${sz}" (${cnt}×)`).join(" · ")}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* BULK APPLY TAB */}
+          {ledgerTab === "rates" && (
+            <div className="card" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+              <h3>Bulk Apply Rate to Past Challans</h3>
+              <p style={{ fontSize: 12, color: "#8a8070", lineHeight: 1.6 }}>Select a grade, enter the rate, and pick a date range. All challans for this customer in that range will have their ₹/kg updated at once.</p>
+              {bulkDone && <div className="ok-box">✓ Rate applied to all matching challans!</div>}
+              <div className="g2">
+                <div>
+                  <label className="lbl">Grade</label>
+                  <select value={bulkForm.grade} onChange={e => { setBulkForm(f => ({...f, grade: e.target.value})); setBulkPreview(null); setBulkDone(false); }}>
+                    <option value="">Select grade</option>
+                    {state.grades.map(g => <option key={g.label} value={`${g.bf}|${g.gsm}`}>{g.bf} BF {g.gsm} GSM</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="lbl">Rate (₹/kg)</label>
+                  <input type="number" step="0.01" inputMode="numeric" value={bulkForm.rate} placeholder="e.g. 42"
+                    onChange={e => { setBulkForm(f => ({...f, rate: e.target.value})); setBulkPreview(null); setBulkDone(false); }} />
+                </div>
+                <div>
+                  <label className="lbl">From Date</label>
+                  <input type="date" value={bulkForm.fromDate} onChange={e => { setBulkForm(f => ({...f, fromDate: e.target.value})); setBulkPreview(null); }} />
+                </div>
+                <div>
+                  <label className="lbl">To Date</label>
+                  <input type="date" value={bulkForm.toDate} onChange={e => { setBulkForm(f => ({...f, toDate: e.target.value})); setBulkPreview(null); }} />
+                </div>
+              </div>
+              {!bulkPreview ? (
+                <button className="btn btn-outline" onClick={() => setBulkPreview(computeBulkPreview(bulkForm))}
+                  disabled={!bulkForm.grade || !bulkForm.rate || !bulkForm.fromDate}>
+                  Preview Changes
+                </button>
+              ) : bulkPreview.reels === 0 ? (
+                <div className="warn-box">No challans found for this grade in that date range.</div>
+              ) : (
+                <div style={{ background: "#fef9ee", border: "1px solid #f0d5a0", borderRadius: 10, padding: "14px 16px" }}>
+                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>Preview</div>
+                  <div style={{ fontSize: 13, color: "#6a6050", marginBottom: 12 }}>
+                    This will set <strong>{fmtRs(Number(bulkForm.rate))}/kg</strong> on <strong>{bulkPreview.challans} challan{bulkPreview.challans !== 1 ? "s" : ""}</strong> · <strong>{bulkPreview.reels} reels</strong> · <strong>{fmt(Math.round(bulkPreview.kg))} kg</strong>
+                    <br/>Total value: <strong>{fmtRs(bulkPreview.kg * Number(bulkForm.rate))}</strong>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="btn btn-dark" onClick={doBulkApply}>✓ Apply Rate</button>
+                    <button className="btn btn-outline" onClick={() => setBulkPreview(null)}>Cancel</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* RATE HISTORY TAB */}
+          {ledgerTab === "history" && custLedger && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              {state.grades.map(g => {
+                const k = `${g.bf}|${g.gsm}`;
+                const hist = (custLedger.cd?.rateHistory?.[k] || []).slice().sort((a,b) => a.from.localeCompare(b.from));
+                // Build date ranges: each entry's "to" = next entry's "from" - 1 day (or today)
+                const withRanges = hist.map((h, i) => ({
+                  ...h,
+                  toDisplay: hist[i+1] ? hist[i+1].from : today()
+                }));
+                return (
+                  <div key={k} className="card" style={{ padding: "14px 16px" }}>
+                    <h3 style={{ marginBottom: 12 }}>{g.bf} BF {g.gsm} GSM — Rate History</h3>
+                    {/* Trend chart */}
+                    {hist.length > 0 && (
+                      <div style={{ marginBottom: 14 }}>
+                        <RateTrendChart hist={hist} color="#1e4d8c" />
+                      </div>
+                    )}
+                    {/* Timeline table */}
+                    {withRanges.length === 0 ? (
+                      <div style={{ fontSize: 12, color: "#8aabcc", fontStyle: "italic" }}>No rate history. Use Bulk Apply to add rates.</div>
+                    ) : (
+                      <div style={{ border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", background: "#eef3fb", padding: "8px 14px" }}>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: "#1e4d8c", textTransform: "uppercase", letterSpacing: "0.07em" }}>From</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: "#1e4d8c", textTransform: "uppercase", letterSpacing: "0.07em" }}>To</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: "#1e4d8c", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "right" }}>Rate</span>
+                        </div>
+                        {withRanges.reverse().map((h, i) => (
+                          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "10px 14px", borderTop: "1px solid #eef3fb", background: i === 0 ? "#fdf9f0" : "#fff" }}>
+                            <span style={{ fontSize: 12 }}>{fmtDate(h.from)}</span>
+                            <span style={{ fontSize: 12, color: "#9a9080" }}>{i === 0 ? "Current" : fmtDate(h.toDisplay)}</span>
+                            <span style={{ fontSize: 13, fontWeight: 700, color: "#1e4d8c", textAlign: "right" }}>{fmtRate(h.rate)}/kg</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
@@ -1747,7 +1977,7 @@ function HistoryTab({ state, update }) {
       </div>
       {challans.length === 0 ? (
         <div className="card" style={{ textAlign: "center", padding: 40 }}>
-          <span className="serif-italic" style={{ fontSize: 17, color: "#b0a898" }}>{sold.length === 0 ? "No sales recorded yet." : "No results match your filters."}</span>
+          <span className="serif-italic" style={{ fontSize: 17, color: "#8aabcc" }}>{sold.length === 0 ? "No sales recorded yet." : "No results match your filters."}</span>
         </div>
       ) : (
         <div className="card-flat">
@@ -1771,17 +2001,18 @@ function HistoryTab({ state, update }) {
                   <div style={{ flex: 1, minWidth: 0 }}>
                     {/* Line 1: customer name + reels badge */}
                     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14, color: "#1a1a1a", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      <span style={{ fontWeight: 600, fontSize: 14, color: "#1a2a4a", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {ch.customer || "—"}
                       </span>
                       <span className="tag tag-red" style={{ fontSize: 11, flexShrink: 0 }}>{ch.reels.length} reel{ch.reels.length !== 1 ? "s" : ""}</span>
                     </div>
-                    {/* Line 2: date · challan no · kg · size tags */}
+                    {/* Line 2: date · challan no · kg · value · size tags */}
                     <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
                       <span style={{ fontSize: 11, color: "#9a9080", fontWeight: 500 }}>{fmtDate(ch.date)}</span>
-                      {ch.challanNo && <><span style={{ fontSize: 10, color: "#d0c8bc" }}>·</span><span style={{ fontSize: 11, color: "#9a9080" }}>Ch {ch.challanNo}</span></>}
-                      <span style={{ fontSize: 10, color: "#d0c8bc" }}>·</span>
+                      {ch.challanNo && <><span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span><span style={{ fontSize: 11, color: "#9a9080" }}>Ch {ch.challanNo}</span></>}
+                      <span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span>
                       <span style={{ fontSize: 11, color: "#6a6050", fontWeight: 500 }}>{fmt(Math.round(totalWt))} kg</span>
+                      {(() => { const v = ch.reels.reduce((s,r) => s+(Number(r.soldRate)||0)*Number(r.weight),0); return v > 0 ? <><span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span><span style={{ fontSize: 11, color: "#1e4d8c", fontWeight: 700 }}>{fmtRs(v)}</span></> : <span style={{ fontSize: 10, background: "#fef5e8", border: "1px solid #f0d5a0", borderRadius: 4, padding: "1px 6px", color: "#a05800", fontWeight: 600 }}>⚠ no rate</span>; })()}
                       {Object.keys(bySizeInChallan).sort((a, b) => Number(a) - Number(b)).slice(0, 4).map(sz => (
                         <span key={sz} className="tag" style={{ fontSize: 10 }}>{sz}"</span>
                       ))}
@@ -1827,7 +2058,7 @@ function HistoryTab({ state, update }) {
                             Reels in This Challan — {ch.reels.length} reels
                           </div>
                           {ch.reels.length === 0
-                            ? <div style={{ fontSize: 12, color: "#b0a898", fontStyle: "italic" }}>No reels — add some below.</div>
+                            ? <div style={{ fontSize: 12, color: "#8aabcc", fontStyle: "italic" }}>No reels — add some below.</div>
                             : <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
                                 {ch.reels.sort((a, b) => Number(a.size) - Number(b.size)).map(r => (
                                   <div key={r.id} style={{ background: "#fef0ee", border: "1px solid #f0c0ba", borderRadius: 7, padding: "6px 10px", display: "flex", alignItems: "center", gap: 7 }}>
@@ -1877,7 +2108,7 @@ function HistoryTab({ state, update }) {
                               && (!addReelFilter.size || r.size === addReelFilter.size)
                             ).sort((a, b) => Number(a.size) - Number(b.size));
                             return avail.length === 0
-                              ? <div style={{ fontSize: 12, color: "#b0a898", fontStyle: "italic" }}>No available stock matches this filter.</div>
+                              ? <div style={{ fontSize: 12, color: "#8aabcc", fontStyle: "italic" }}>No available stock matches this filter.</div>
                               : <div style={{ display: "flex", flexWrap: "wrap", gap: 6, maxHeight: 150, overflowY: "auto" }}>
                                   {avail.map(r => (
                                     <button key={r.id}
@@ -1929,7 +2160,7 @@ function HistoryTab({ state, update }) {
                               <div key={gk} style={{ background: "#f0f4f9", borderRadius: 10, padding: "10px 12px" }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                                   <span className="tag">{gd.bf} BF · {gd.gsm} GSM</span>
-                                  <span style={{ fontSize: 12, color: "#6a7a9a" }}>{fmt(Math.round(gradeKg))} kg</span>
+                                  <span style={{ fontSize: 12, color: "#1e4d8c" }}>{fmt(Math.round(gradeKg))} kg</span>
                                   <div style={{ flex: 1 }} />
                                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                                     <input
@@ -1946,13 +2177,13 @@ function HistoryTab({ state, update }) {
                                       }}
                                       style={{ width: 80, padding: "4px 8px", fontSize: 12 }}
                                     />
-                                    <span style={{ fontSize: 11, color: "#6a7a9a" }}>/kg</span>
+                                    <span style={{ fontSize: 11, color: "#1e4d8c" }}>/kg</span>
                                     {gradeVal > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#1a2a4a" }}>{fmtRs(gradeVal)}</span>}
                                   </div>
                                 </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                                   {gd.reels.sort((a, b) => Number(a.size) - Number(b.size) || Number(a.weight) - Number(b.weight)).map(r => (
-                                    <span key={r.id} style={{ background: "#fff", border: "1px solid #c8d8f0", borderRadius: 5, padding: "3px 9px", fontSize: 12, color: "#2a4a7a", fontWeight: 500 }}>
+                                    <span key={r.id} style={{ background: "#fff", border: "1px solid #c8d8f0", borderRadius: 5, padding: "3px 9px", fontSize: 12, color: "#1e4d8c", fontWeight: 500 }}>
                                       {r.size}" · {fmt(r.weight)} kg
                                     </span>
                                   ))}
@@ -1963,7 +2194,7 @@ function HistoryTab({ state, update }) {
                           <div style={{ paddingTop: 10, borderTop: "1px solid #dde5f0", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
                             <span style={{ color: "#9a9080" }}>{ch.reels.length} reels · {fmt(Math.round(totalWt))} kg</span>
                             <span style={{ fontWeight: 700, color: "#1a2a4a", fontSize: 15 }}>
-                              {challanVal > 0 ? fmtRs(challanVal) : <span style={{ color: "#b0a898", fontStyle: "italic", fontSize: 12 }}>Add ₹/kg to see total</span>}
+                              {challanVal > 0 ? fmtRs(challanVal) : <span style={{ color: "#8aabcc", fontStyle: "italic", fontSize: 12 }}>Add ₹/kg to see total</span>}
                             </span>
                           </div>
                         </div>
@@ -2082,7 +2313,7 @@ function ReportsTab({ state }) {
       <div className="card" style={{ textAlign: "center", padding: 52 }}>
         <div style={{ fontSize: 36, marginBottom: 14 }}>📊</div>
         <div className="serif-italic" style={{ fontSize: 20, color: "#9a9080" }}>No sales data yet.</div>
-        <div style={{ fontSize: 13, color: "#b0a898", marginTop: 6 }}>Record some sales to see your analytics here.</div>
+        <div style={{ fontSize: 13, color: "#8aabcc", marginTop: 6 }}>Record some sales to see your analytics here.</div>
       </div>
     </div>
   );
@@ -2096,7 +2327,7 @@ function ReportsTab({ state }) {
           <div style={{ display: "flex", gap: 4 }}>
             {[["day","Day"],["week","Week"],["month","Month"],["all","All Time"]].map(([m, label]) => (
               <button key={m} onClick={() => setPeriodMode(m)}
-                style={{ flex: 1, padding: "5px 0", borderRadius: 6, border: `1.5px solid ${periodMode === m ? "#1a1a1a" : "#d0dced"}`, background: periodMode === m ? "#1a1a1a" : "transparent", color: periodMode === m ? "#fff" : "#6a6050", fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.15s" }}>
+                style={{ flex: 1, padding: "5px 0", borderRadius: 6, border: `1.5px solid ${periodMode === m ? "#1a2a4a" : "#d0dced"}`, background: periodMode === m ? "#1a2a4a" : "transparent", color: periodMode === m ? "#fff" : "#6a6050", fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.15s" }}>
                 {label}
               </button>
             ))}
@@ -2109,7 +2340,63 @@ function ReportsTab({ state }) {
           <div style={{ fontSize: 11, color: "#1e4d8c", fontWeight: 500 }}>{periodLabelStr}</div>
         </div>
       </div>
-      <div className="g4">
+
+      {/* ── DATA COMPLETENESS CARD ── */}
+      {(() => {
+        const allSold = state.stock.filter(r => r.sold);
+        const missingSellRate = allSold.filter(r => !r.soldRate);
+        const missingCostRate = state.stock.filter(r => !r.costRate);
+        const missingChallans = [...new Set(missingSellRate.map(r => r.soldChallanNo || `${r.soldDate}|${r.soldTo}`))];
+        const missingShipments = [...new Set(missingCostRate.map(r => r.invoiceNo || `${r.inwardDate}|${r.supplier}`))];
+        const totalEntries = [...new Set(allSold.map(r => r.soldChallanNo || `${r.soldDate}|${r.soldTo}`))].length + [...new Set(state.stock.map(r => r.invoiceNo || `${r.inwardDate}|${r.supplier}`))].length;
+        const missingCount = missingChallans.length + missingShipments.length;
+        const pct = totalEntries > 0 ? Math.round(((totalEntries - missingCount) / totalEntries) * 100) : 100;
+        if (missingCount === 0) return (
+          <div className="ok-box" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <span>✓</span><span>All entries have rates set — reports are fully accurate.</span>
+          </div>
+        );
+        return (
+          <div style={{ background: "#eef3fb", border: "1px solid #c8d8f0", borderRadius: 14, padding: "16px 18px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ fontSize: 16 }}>⚠️</span>
+                <span style={{ fontWeight: 600, fontSize: 14, color: "#1a3a6e" }}>Report Incomplete — Missing Rates</span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ background: "#c8d8f0", borderRadius: 20, height: 6, width: 100, overflow: "hidden" }}>
+                  <div style={{ background: "#1e4d8c", height: "100%", width: `${pct}%`, borderRadius: 20, transition: "width 0.4s" }} />
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#1a3a6e" }}>{pct}% complete</span>
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {missingChallans.length > 0 && (
+                <div style={{ background: "#fff", border: "1px solid #c8d8f0", borderRadius: 10, padding: "10px 14px", flex: 1, minWidth: 160 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1a3a6e", marginBottom: 4 }}>
+                    {missingChallans.length} challan{missingChallans.length !== 1 ? "s" : ""} — no sell rate
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6a7a9a", lineHeight: 1.6 }}>
+                    {missingSellRate.length} reels · {fmt(Math.round(missingSellRate.reduce((s,r) => s+Number(r.weight),0)))} kg unpriced
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6a7a9a", marginTop: 6, fontStyle: "italic" }}>Go to History → open challan → set ₹/kg</div>
+                </div>
+              )}
+              {missingShipments.length > 0 && (
+                <div style={{ background: "#fff", border: "1px solid #c8d8f0", borderRadius: 10, padding: "10px 14px", flex: 1, minWidth: 160 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1a3a6e", marginBottom: 4 }}>
+                    {missingShipments.length} shipment{missingShipments.length !== 1 ? "s" : ""} — no cost rate
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6a7a9a", lineHeight: 1.6 }}>
+                    {missingCostRate.length} reels · {fmt(Math.round(missingCostRate.reduce((s,r) => s+Number(r.weight),0)))} kg uncosted
+                  </div>
+                  <div style={{ fontSize: 11, color: "#6a7a9a", marginTop: 6, fontStyle: "italic" }}>Go to Stock → Inward History → set rates</div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
         {(() => {
           const revenue = periodSold.reduce((s, r) => s + (Number(r.soldRate) || 0) * Number(r.weight), 0);
           const cost = periodSold.reduce((s, r) => s + (Number(r.costRate) || 0) * Number(r.weight), 0);
@@ -2124,15 +2411,41 @@ function ReportsTab({ state }) {
           <div key={s.label} className="card" style={{ padding: "18px 20px" }}>
             <div className="lbl">{s.label}</div>
             <div className="stat-num" style={{ fontSize: 28 }}>{s.val}</div>
-            <div className="serif-italic" style={{ fontSize: 12, color: "#b0a898", marginTop: 3 }}>{s.unit}</div>
+            <div className="serif-italic" style={{ fontSize: 12, color: "#8aabcc", marginTop: 3 }}>{s.unit}</div>
           </div>
         ))}
       </div>
       {showTrend && trendData.length > 1 && (
-        <div className="card">
-          <h3>Monthly Sales Trend — Weight Dispatched</h3>
-          <BarChart data={trendData} color="#1e4d8c" unit="t" height={110} />
-          <div style={{ fontSize: 11, color: "#b0a898", marginTop: 8, fontStyle: "italic" }}>Last {trendData.length} months. Darker bar = most recent.</div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="card">
+            <h3>Monthly Weight Dispatched</h3>
+            <BarChart data={trendData} color="#1e4d8c" unit="t" height={100} />
+            <div style={{ fontSize: 11, color: "#8aabcc", marginTop: 8, fontStyle: "italic" }}>Last {trendData.length} months. Darker bar = most recent.</div>
+          </div>
+          {(() => {
+            const revData = last6.map(m => ({ label: monthLabel(m).split(" ")[0], value: sold.filter(r => monthKey(r.soldDate) === m).reduce((s, r) => s + (Number(r.soldRate)||0)*Number(r.weight), 0) }));
+            const profData = last6.map(m => ({ label: monthLabel(m).split(" ")[0], value: sold.filter(r => monthKey(r.soldDate) === m).reduce((s, r) => s + ((Number(r.soldRate)||0)-(Number(r.costRate)||0))*Number(r.weight), 0) }));
+            const hasRevData = revData.some(d => d.value > 0);
+            const hasProfData = profData.some(d => d.value !== 0);
+            return (
+              <>
+                {hasRevData && (
+                  <div className="card">
+                    <h3>Monthly Revenue (₹)</h3>
+                    <BarChart data={revData} color="#2d6a4f" height={100} />
+                    <div style={{ fontSize: 11, color: "#8aabcc", marginTop: 8, fontStyle: "italic" }}>Based on challans with selling rates set.</div>
+                  </div>
+                )}
+                {hasProfData && (
+                  <div className="card">
+                    <h3>Monthly Gross Profit (₹)</h3>
+                    <BarChart data={profData} color="#1a2a4a" height={100} />
+                    <div style={{ fontSize: 11, color: "#8aabcc", marginTop: 8, fontStyle: "italic" }}>Only accurate for challans with both cost and sell rates set.</div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
       <div className="g2">
@@ -2203,7 +2516,7 @@ function ReportsTab({ state }) {
           })}
         </div>
       </div>
-      <div className="card" style={{ background: "#1a1a1a", color: "#f4f7fb", border: "none" }}>
+      <div className="card" style={{ background: "#1a2a4a", color: "#f4f7fb", border: "none" }}>
         <h3 style={{ color: "#a09080", marginBottom: 16 }}>Key Insights — {periodLabelStr}</h3>
         <div className="g3">
           {[

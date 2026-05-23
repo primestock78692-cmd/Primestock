@@ -745,7 +745,11 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
   };
 
   const bySizeMap = {};
-  reels.forEach(r => { if (!bySizeMap[r.size]) bySizeMap[r.size] = []; bySizeMap[r.size].push(r); });
+  reels.forEach(r => {
+    const k = `${r.bf}|${r.gsm}|${r.size}`;
+    if (!bySizeMap[k]) bySizeMap[k] = [];
+    bySizeMap[k].push(r);
+  });
   const totalWt = reels.reduce((s, r) => s + (Number(r.weight) || 0), 0);
 
   if (view === "add") return (
@@ -757,16 +761,10 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
       {saved && <div className="ok-box">✓ Stock saved successfully!</div>}
       <div className="card">
         <h3>Supplier Details</h3>
-        <div className="g4">
+        <div className="g3">
           <div><label className="lbl">Supplier Name</label><input value={form.supplier} onChange={e => setForm(f => ({ ...f, supplier: e.target.value }))} placeholder="e.g. Nexois Paper LLP" /></div>
           <div><label className="lbl">Invoice / Note No</label><input value={form.invoiceNo} onChange={e => setForm(f => ({ ...f, invoiceNo: e.target.value }))} placeholder="e.g. NP/0298/2026-27" /></div>
           <div><label className="lbl">Date</label><input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} /></div>
-          <div>
-            <label className="lbl">Paper Grade</label>
-            <select value={`${form.bf}|${form.gsm}|${form.shade}`} onChange={e => { const [bf, gsm, shade] = e.target.value.split("|"); setForm(f => ({ ...f, bf, gsm, shade })); }}>
-              {state.grades.map(g => <option key={g.label} value={`${g.bf}|${g.gsm}|${g.shade}`}>{g.label}</option>)}
-            </select>
-          </div>
         </div>
       </div>
       {/* Scrollable reel list — grows upward as items are added */}
@@ -777,17 +775,25 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
         {reels.length === 0 && (
           <div style={{ fontSize: 13, color: "#8aabcc", fontStyle: "italic" }}>No reels yet — use the entry bar below to add.</div>
         )}
-        {Object.entries(bySizeMap).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, sr]) => {
+        {Object.entries(bySizeMap).sort((a, b) => {
+          const [abf,,asz] = a[0].split("|"); const [bbf,,bsz] = b[0].split("|");
+          return abf.localeCompare(bbf) || Number(asz) - Number(bsz);
+        }).map(([key, sr]) => {
+          const [bf, gsm, sz] = key.split("|");
           const sizeTotal = sr.reduce((s, r) => s + (Number(r.weight) || 0), 0);
           return (
-            <div key={sz} style={{ marginBottom: 16 }}>
+            <div key={key} style={{ marginBottom: 14, background: "#f0f4f9", borderRadius: 10, padding: "10px 12px" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <div className="lbl" style={{ marginBottom: 0 }}>Size {sz}" — {sr.length} reel{sr.length !== 1 ? "s" : ""}</div>
-                {sizeTotal > 0 && <span style={{ fontSize: 11, color: "#6a6050", fontWeight: 600 }}>{fmt(sizeTotal)} kg total</span>}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span className="serif" style={{ fontSize: 20, color: "#1a2a4a" }}>{sz}"</span>
+                  <span className="tag" style={{ fontSize: 10 }}>{bf} BF · {gsm} GSM</span>
+                  <span style={{ fontSize: 11, color: "#6a7a9a" }}>{sr.length} reel{sr.length !== 1 ? "s" : ""}</span>
+                </div>
+                {sizeTotal > 0 && <span style={{ fontSize: 11, color: "#1e4d8c", fontWeight: 600 }}>{fmt(sizeTotal)} kg</span>}
               </div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                 {sr.map((r, i) => (
-                  <div key={r.id} style={{ background: "#f2f5fb", border: "1px solid #dde5f0", borderRadius: 8, padding: "7px 10px", display: "flex", alignItems: "center", gap: 6 }}>
+                  <div key={r.id} style={{ background: "#fff", border: "1px solid #dde5f0", borderRadius: 8, padding: "7px 10px", display: "flex", alignItems: "center", gap: 6 }}>
                     <span style={{ fontSize: 10, color: "#8aabcc", minWidth: 18 }}>#{i + 1}</span>
                     <input type="number" value={r.weight} onChange={e => setReels(p => p.map(x => x.id === r.id ? { ...x, weight: e.target.value } : x))} style={{ width: 72, padding: "4px 8px", fontSize: 12 }} />
                     <span style={{ fontSize: 10, color: "#8aabcc" }}>kg</span>
@@ -856,14 +862,21 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
       {/* ── STICKY ENTRY BAR — stays at bottom regardless of scroll ── */}
       <div style={{ position: "sticky", bottom: 0, zIndex: 120, background: "#f2f5fb", padding: "10px 0 0 0" }}>
         <div className="card" style={{ borderTop: "2px solid #dde5f0", borderRadius: "14px 14px 14px 14px", boxShadow: "0 -4px 20px rgba(0,0,0,0.07)" }}>
+          {/* Grade selector in bar */}
+          <div style={{ marginBottom: 8 }}>
+            <label className="lbl">Grade</label>
+            <select value={`${form.bf}|${form.gsm}|${form.shade}`} onChange={e => { const [bf, gsm, shade] = e.target.value.split("|"); setForm(f => ({ ...f, bf, gsm, shade })); ensureGradeRate(bf, gsm); }}>
+              {state.grades.map(g => <option key={g.label} value={`${g.bf}|${g.gsm}|${g.shade}`}>{g.label}</option>)}
+            </select>
+          </div>
           <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap", marginBottom: 10 }}>
-            <div style={{ flex: 1, minWidth: 110 }}>
+            <div style={{ flex: 1, minWidth: 100 }}>
               <label className="lbl">Size</label>
               <select value={newReel.size} onChange={e => setNewReel(r => ({ ...r, size: e.target.value }))}>
                 <option value="">Select</option>{SIZE_OPTIONS.map(o => <option key={o} value={o}>{o}"</option>)}
               </select>
             </div>
-            <div style={{ flex: 1, minWidth: 110 }}>
+            <div style={{ flex: 1, minWidth: 100 }}>
               <label className="lbl">Weight (kg)</label>
               <input
                 ref={weightInputRef}
@@ -875,7 +888,10 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                 onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); addReel(); } }}
               />
             </div>
-            <button className="btn btn-outline" onMouseDown={e => e.preventDefault()} onClick={addReel} style={{ flexShrink: 0 }}>+ Add</button>
+            <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 3, flexShrink: 0 }}>
+              <button className="btn btn-outline" onMouseDown={e => e.preventDefault()} onClick={addReel}>+ Add</button>
+              {reels.length > 0 && <span style={{ fontSize: 10, color: "#6a7a9a", fontWeight: 600 }}>{reels.length} reel{reels.length !== 1 ? "s" : ""} total</span>}
+            </div>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, borderTop: "1px solid #e8eef8" }}>
             <div style={{ fontSize: 13, color: "#8a8070" }}>

@@ -926,7 +926,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
       const soldForGrade = gradeReels.filter(r => r.sold).sort((a, b) => new Date(b.soldDate) - new Date(a.soldDate));
       const inwardGroups = {};
       gradeReels.forEach(r => {
-        const key = r.invoiceNo || r.inwardDate || "Unknown";
+        const key = (r.invoiceNo && String(r.invoiceNo) !== "0") ? r.invoiceNo : (r.inwardDate || "Unknown");
         if (!inwardGroups[key]) inwardGroups[key] = { invoiceNo: r.invoiceNo, date: r.inwardDate, supplier: r.supplier, reels: [] };
         inwardGroups[key].reels.push(r);
       });
@@ -970,8 +970,8 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
   if (view === "inward") {
     const shipments = {};
     state.stock.forEach(r => {
-      const key = r.invoiceNo ? r.invoiceNo : `__${r.inwardDate}__${r.supplier}`;
-      if (!shipments[key]) shipments[key] = { invoiceNo: r.invoiceNo || null, date: r.inwardDate, supplier: r.supplier || "Unknown", reels: [] };
+      const validInv = r.invoiceNo && String(r.invoiceNo) !== "0" && String(r.invoiceNo).trim() !== ""; const key = validInv ? String(r.invoiceNo) : `__${r.inwardDate}__${r.supplier}`;
+      if (!shipments[key]) shipments[key] = { invoiceNo: validInv ? r.invoiceNo : null, date: r.inwardDate, supplier: r.supplier || "Unknown", reels: [] };
       shipments[key].reels.push(r);
     });
     const shipList = Object.values(shipments).sort((a, b) => new Date(b.date) - new Date(a.date));

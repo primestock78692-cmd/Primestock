@@ -35,23 +35,7 @@ const SHADE_OPTIONS = ["golden", "natural"];
 const SIZE_OPTIONS = Array.from({ length: 37 }, (_, i) => String(18 + i)); // 18–54
 const INITIAL_STATE = { stock: [], grades: GRADES, customers: [], customerData: {} };
 
-function fmtRs(n) { return "₹" + Number(n).toLocaleString("en-IN", { maximumFractionDigits: 0 }); }
-function fmtRate(n) { if (!n && n !== 0) return ""; const v = Number(n); return "₹" + (Number.isInteger(v) ? v.toString() : v.toFixed(2)); }
-function getCurrentRate(customerData, customer, bf, gsm) {
-  const hist = customerData?.[customer]?.rateHistory?.[`${bf}|${gsm}`];
-  if (!hist || hist.length === 0) return "";
-  return hist[hist.length - 1].rate;
-}
-function computeWeightedCostRate(slabs, totalKg) {
-  if (!slabs || slabs.length === 0) return 0;
-  if (slabs.length === 1) return Number(slabs[0].rate) || 0;
-  let totalCost = 0, usedKg = 0;
-  slabs.forEach(s => { const kg = Number(s.kg) || 0; totalCost += kg * (Number(s.rate) || 0); usedKg += kg; });
-  if (usedKg === 0) return Number(slabs[0].rate) || 0;
-  const remKg = totalKg - usedKg;
-  if (remKg > 0) totalCost += remKg * (Number(slabs[slabs.length - 1].rate) || 0);
-  return totalKg > 0 ? totalCost / totalKg : 0;
-}
+
 
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
 function fmt(n) { return Number(n).toLocaleString("en-IN"); }
@@ -60,60 +44,10 @@ function today() { return new Date().toISOString().slice(0, 10); }
 function monthKey(d) { return d ? d.slice(0, 7) : ""; }
 function monthLabel(k) { if (!k) return ""; const [y, m] = k.split("-"); return new Date(y, m - 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" }); }
 
-const TABS = ["Home", "Stock", "Sell", "History", "Reports", "Settings"];
+const TABS = ["Home", "Stock", "Sell", "History", "Settings"];
 
 // ─── CHART HELPERS ────────────────────────────────────────────────────────────
 const CHART_COLORS = ["#1e3a6e", "#1e4d8c", "#5a8a5a", "#5a6a8a", "#8a4a4a", "#6a5a8a", "#8a7a3a", "#3a7a8a"];
-
-function PieChart({ data, size = 160 }) {
-  if (!data?.length) return null;
-  const total = data.reduce((s, d) => s + d.value, 0);
-  if (total === 0) return null;
-  let cumAngle = -Math.PI / 2;
-  const cx = size / 2, cy = size / 2, r = size / 2 - 8;
-  const slices = data.map((d, i) => {
-    const angle = (d.value / total) * 2 * Math.PI;
-    const x1 = cx + r * Math.cos(cumAngle);
-    const y1 = cy + r * Math.sin(cumAngle);
-    cumAngle += angle;
-    const x2 = cx + r * Math.cos(cumAngle);
-    const y2 = cy + r * Math.sin(cumAngle);
-    const large = angle > Math.PI ? 1 : 0;
-    return { path: `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`, color: CHART_COLORS[i % CHART_COLORS.length], label: d.label, pct: ((d.value / total) * 100).toFixed(1) };
-  });
-  return (
-    <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
-      <svg width={size} height={size} style={{ flexShrink: 0 }}>
-        {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} stroke="#fff" strokeWidth={1.5} />)}
-      </svg>
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {slices.map((s, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
-            <span style={{ color: "#1a2a4a", fontWeight: 500 }}>{s.label}</span>
-            <span style={{ color: "#9a9080" }}>{s.pct}%</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function BarChart({ data, color = "#1e3a6e", unit = "", height = 120 }) {
-  if (!data?.length) return null;
-  const max = Math.max(...data.map(d => d.value), 1);
-  return (
-    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: height + 32, paddingTop: 4 }}>
-      {data.map((d, i) => (
-        <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1, minWidth: 32 }}>
-          <div style={{ fontSize: 10, color: "#9a9080", fontWeight: 500 }}>{d.value > 0 ? (unit === "t" ? (d.value / 1000).toFixed(1) + "t" : fmt(d.value)) : ""}</div>
-          <div style={{ width: "100%", background: i === data.length - 1 ? color : "#ccd8ec", borderRadius: "3px 3px 0 0", height: Math.max((d.value / max) * height, d.value > 0 ? 4 : 0), transition: "height 0.4s ease", minHeight: d.value > 0 ? 4 : 0 }} />
-          <div style={{ fontSize: 10, color: "#9a9080", textAlign: "center", lineHeight: 1.2 }}>{d.label}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ─── CUSTOMER AUTOCOMPLETE ────────────────────────────────────────────────────
 function CustomerInput({ value, onChange, customers, placeholder = "Buyer / Corrugater name" }) {
@@ -363,7 +297,6 @@ export default function App() {
         {tab === "Stock"    && <StockTab    state={state} update={update} stockNav={stockNav} clearStockNav={() => setStockNav(null)} />}
         {tab === "Sell"     && <SellTab     state={state} update={update} />}
         {tab === "History"  && <HistoryTab  state={state} update={update} />}
-        {tab === "Reports"  && <ReportsTab  state={state} />}
         {tab === "Settings" && <SettingsTab state={state} update={update} />}
       </div>
     </div>
@@ -684,8 +617,6 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
   const [view, setView] = useState("list");
   const [filter, setFilter] = useState({ bf: "", gsm: "", shade: "", size: "", showSold: false });
   const [openShip, setOpenShip] = useState(null);
-  const [editShipKey, setEditShipKey] = useState(null); // shipment being rate-edited
-  const [shipRates, setShipRates] = useState({});       // "bf|gsm" -> {mode,rate,slabs}
   const [editWeightKey, setEditWeightKey] = useState(null); // shipment being weight-edited
 
   useEffect(() => {
@@ -699,20 +630,10 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
   const [reels, setReels] = useState([]);
   const [newReel, setNewReel] = useState({ size: "", weight: "" });
   const [saved, setSaved] = useState(false);
-  const [gradeRates, setGradeRates] = useState({}); // "bf|gsm" -> { mode:"simple"|"slabs", rate:"", slabs:[{kg,rate}] }
   const weightInputRef = useRef(null);
-
-  // Detect grades in current reels and ensure gradeRates has an entry for each
-  const detectedGrades = [...new Set(reels.map(r => `${form.bf}|${form.gsm}`))];
-  // When grade changes or reels added, seed gradeRates entry
-  const ensureGradeRate = (bf, gsm) => {
-    const k = `${bf}|${gsm}`;
-    if (!gradeRates[k]) setGradeRates(p => ({ ...p, [k]: { mode: "simple", rate: "", slabs: [{ kg: "", rate: "" }] } }));
-  };
 
   const addReel = () => {
     if (!newReel.size || !newReel.weight) return;
-    ensureGradeRate(form.bf, form.gsm);
     setReels(p => [...p, { ...newReel, id: genId(), bf: form.bf, gsm: form.gsm, shade: form.shade }]);
     setNewReel(r => ({ ...r, weight: "" }));
     setTimeout(() => {
@@ -723,24 +644,9 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
 
   const submit = () => {
     if (!form.supplier || reels.length === 0) return;
-    // Group reels by grade to assign costRate
-    const gradeGroups = {};
-    reels.forEach(r => {
-      const k = `${r.bf}|${r.gsm}`;
-      if (!gradeGroups[k]) gradeGroups[k] = [];
-      gradeGroups[k].push(r);
-    });
-    const nr = reels.map(r => {
-      const k = `${r.bf}|${r.gsm}`;
-      const gr = gradeRates[k];
-      const gradeKg = gradeGroups[k].reduce((s, x) => s + Number(x.weight), 0);
-      const costRate = gr
-        ? (gr.mode === "simple" ? Number(gr.rate) || 0 : computeWeightedCostRate(gr.slabs, gradeKg))
-        : 0;
-      return { ...r, id: genId(), sold: false, supplier: form.supplier, invoiceNo: form.invoiceNo, inwardDate: form.date, costRate };
-    });
+    const nr = reels.map(r => ({ ...r, id: genId(), sold: false, supplier: form.supplier, invoiceNo: form.invoiceNo, inwardDate: form.date }));
     update(s => { s.stock = [...s.stock, ...nr]; });
-    setSaved(true); setReels([]); setGradeRates({});
+    setSaved(true); setReels([]);
     setTimeout(() => { setSaved(false); setView("list"); }, 1800);
   };
 
@@ -806,66 +712,13 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
         })}
       </div>
 
-      {/* Cost Rates per grade */}
-      {reels.length > 0 && (
-        <div className="card">
-          <h3 style={{ marginBottom: 12 }}>Cost Rates — ₹/kg per grade</h3>
-          {[...new Set(reels.map(r => `${r.bf}|${r.gsm}`))].map(gk => {
-            const [bf, gsm] = gk.split("|");
-            const gr = gradeRates[gk] || { mode: "simple", rate: "", slabs: [{ kg: "", rate: "" }] };
-            const gradeLabel = `${bf} BF ${gsm} GSM`;
-            const gradeKg = reels.filter(r => r.bf === bf && r.gsm === gsm).reduce((s, r) => s + Number(r.weight), 0);
-            return (
-              <div key={gk} style={{ marginBottom: 14, padding: "12px 14px", background: "#f0f4f9", borderRadius: 10 }}>
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                  <span style={{ fontWeight: 600, fontSize: 13 }}>{gradeLabel}</span>
-                  <span style={{ fontSize: 11, color: "#1e4d8c" }}>{fmt(Math.round(gradeKg))} kg</span>
-                </div>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: gr.mode === "slabs" ? 8 : 0 }}>
-                  {gr.mode === "simple" ? (
-                    <input type="number" step="0.01" inputMode="numeric" value={gr.rate} placeholder="₹/kg e.g. 28"
-                      onChange={e => setGradeRates(p => ({ ...p, [gk]: { ...gr, rate: e.target.value } }))}
-                      style={{ flex: 1 }} />
-                  ) : null}
-                  <button className="btn btn-outline btn-sm" style={{ flexShrink: 0, fontSize: 11 }}
-                    onClick={() => setGradeRates(p => ({ ...p, [gk]: { ...gr, mode: gr.mode === "simple" ? "slabs" : "simple" } }))}>
-                    {gr.mode === "simple" ? "+ Split rates" : "Simple rate"}
-                  </button>
-                </div>
-                {gr.mode === "slabs" && (
-                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                    {gr.slabs.map((sl, si) => (
-                      <div key={si} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                        <input type="number" inputMode="numeric" value={sl.kg} placeholder="kg"
-                          style={{ flex: 1 }}
-                          onChange={e => setGradeRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], kg: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
-                        <span style={{ fontSize: 12, color: "#1e4d8c", flexShrink: 0 }}>kg @</span>
-                        <input type="number" step="0.01" inputMode="numeric" value={sl.rate} placeholder="₹/kg"
-                          style={{ flex: 1 }}
-                          onChange={e => setGradeRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], rate: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
-                        {gr.slabs.length > 1 && <button onClick={() => setGradeRates(p => { const slabs = p[gk].slabs.filter((_, i) => i !== si); return { ...p, [gk]: { ...p[gk], slabs } }; })} style={{ background: "transparent", color: "#b83020", border: "none", fontSize: 14, cursor: "pointer" }}>✕</button>}
-                      </div>
-                    ))}
-                    <button className="btn btn-outline btn-sm" style={{ alignSelf: "flex-start", fontSize: 11 }}
-                      onClick={() => setGradeRates(p => ({ ...p, [gk]: { ...p[gk], slabs: [...p[gk].slabs, { kg: "", rate: "" }] } }))}>
-                      + Add slab
-                    </button>
-                    <div style={{ fontSize: 11, color: "#1e4d8c", fontStyle: "italic" }}>Remaining kg auto-assigned to last slab rate</div>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-
       {/* ── STICKY ENTRY BAR — stays at bottom regardless of scroll ── */}
       <div style={{ position: "sticky", bottom: 0, zIndex: 120, background: "#f2f5fb", padding: "10px 0 0 0" }}>
         <div className="card" style={{ borderTop: "2px solid #dde5f0", borderRadius: "14px 14px 14px 14px", boxShadow: "0 -4px 20px rgba(0,0,0,0.07)" }}>
           {/* Grade selector in bar */}
           <div style={{ marginBottom: 8 }}>
             <label className="lbl">Grade</label>
-            <select value={`${form.bf}|${form.gsm}|${form.shade}`} onChange={e => { const [bf, gsm, shade] = e.target.value.split("|"); setForm(f => ({ ...f, bf, gsm, shade })); ensureGradeRate(bf, gsm); }}>
+            <select value={`${form.bf}|${form.gsm}|${form.shade}`} onChange={e => { const [bf, gsm, shade] = e.target.value.split("|"); setForm(f => ({ ...f, bf, gsm, shade })); }}>
               {state.grades.map(g => <option key={g.label} value={`${g.bf}|${g.gsm}|${g.shade}`}>{g.label}</option>)}
             </select>
           </div>
@@ -897,15 +750,6 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
             <div style={{ fontSize: 13, color: "#8a8070" }}>
               Total: <span className="serif" style={{ fontSize: 20, color: "#1a2a4a" }}>{fmt(totalWt)} kg</span>
               <span style={{ fontSize: 11, color: "#8aabcc", marginLeft: 6 }}>({reels.length} reels)</span>
-              {(() => {
-                const shipVal = Object.entries(gradeRates).reduce((s, [gk, gr]) => {
-                  const [bf, gsm] = gk.split("|");
-                  const gradeKg = reels.filter(r => r.bf === bf && r.gsm === gsm).reduce((ss, r) => ss + Number(r.weight), 0);
-                  const rate = gr.mode === "simple" ? Number(gr.rate)||0 : computeWeightedCostRate(gr.slabs, gradeKg);
-                  return s + rate * gradeKg;
-                }, 0);
-                return shipVal > 0 ? <span style={{ display: "block", fontSize: 12, color: "#1e4d8c", fontWeight: 700, marginTop: 2 }}>{fmtRs(shipVal)} shipment value</span> : null;
-              })()}
             </div>
             <button className="btn btn-dark" onClick={submit} disabled={reels.length === 0 || !form.supplier}>✓ Save</button>
           </div>
@@ -1008,7 +852,6 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                         <span style={{ fontWeight: 600, fontSize: 14, color: "#1a2a4a" }}>{sh.supplier}</span>
                         <span className="tag tag-green" style={{ fontSize: 10 }}>{sh.reels.length} reels</span>
                         {availCount < sh.reels.length && <span className="tag tag-red" style={{ fontSize: 10 }}>{sh.reels.length - availCount} sold</span>}
-                        {sh.reels.some(r => !r.costRate) && <span style={{ fontSize: 10, background: "#fef5e8", border: "1px solid #f0d5a0", borderRadius: 4, padding: "1px 6px", color: "#a05800", fontWeight: 600 }}>⚠ no cost rate</span>}
                       </div>
                       <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
                         <span style={{ fontSize: 11, color: "#9a9080", fontWeight: 500 }}>{fmtDate(sh.date)}</span>
@@ -1029,98 +872,10 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                       {/* Action buttons */}
                       <div style={{ display: "flex", gap: 8 }}>
                         <button className="btn btn-outline btn-sm"
-                          onClick={() => {
-                            if (editShipKey === key) { setEditShipKey(null); return; }
-                            // Seed rates from existing costRate on reels
-                            const grades = {};
-                            sh.reels.forEach(r => {
-                              const k2 = `${r.bf}|${r.gsm}`;
-                              if (!grades[k2]) grades[k2] = { mode: "simple", rate: String(r.costRate || ""), slabs: [{ kg: "", rate: String(r.costRate || "") }] };
-                            });
-                            setShipRates(grades);
-                            setEditShipKey(key);
-                            setEditWeightKey(null);
-                          }}>
-                          {editShipKey === key ? "✕ Cancel" : "₹ Edit Cost Rates"}
-                        </button>
-                        <button className="btn btn-outline btn-sm"
                           onClick={() => { setEditWeightKey(editWeightKey === key ? null : key); setEditShipKey(null); }}>
                           {editWeightKey === key ? "✕ Cancel" : "✏ Edit Weights"}
                         </button>
                       </div>
-
-                      {/* Cost rate edit panel */}
-                      {editShipKey === key && (
-                        <div style={{ background: "#fff", border: "1.5px solid #1e4d8c", borderRadius: 10, padding: "14px 16px" }}>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: "#1e4d8c", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Set Cost Rate per Grade</div>
-                          {[...new Set(sh.reels.map(r => `${r.bf}|${r.gsm}`))].map(gk => {
-                            const [gbf, ggsm] = gk.split("|");
-                            const gr = shipRates[gk] || { mode: "simple", rate: "", slabs: [{ kg: "", rate: "" }] };
-                            const gradeKg = sh.reels.filter(r => r.bf === gbf && r.gsm === ggsm).reduce((s, r) => s + Number(r.weight), 0);
-                            return (
-                              <div key={gk} style={{ marginBottom: 12, padding: "10px 12px", background: "#f0f4f9", borderRadius: 8 }}>
-                                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                                  <span style={{ fontWeight: 600, fontSize: 13 }}>{gbf} BF {ggsm} GSM</span>
-                                  <span style={{ fontSize: 11, color: "#9a9080" }}>{fmt(Math.round(gradeKg))} kg</span>
-                                </div>
-                                <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: gr.mode === "slabs" ? 8 : 0 }}>
-                                  {gr.mode === "simple" && (
-                                    <input type="number" step="0.01" inputMode="numeric" value={gr.rate} placeholder="₹/kg e.g. 28"
-                                      onChange={e => setShipRates(p => ({ ...p, [gk]: { ...gr, rate: e.target.value } }))}
-                                      style={{ flex: 1 }} />
-                                  )}
-                                  <button className="btn btn-outline btn-sm" style={{ fontSize: 11, flexShrink: 0 }}
-                                    onClick={() => setShipRates(p => ({ ...p, [gk]: { ...gr, mode: gr.mode === "simple" ? "slabs" : "simple" } }))}>
-                                    {gr.mode === "simple" ? "+ Split" : "Simple"}
-                                  </button>
-                                </div>
-                                {gr.mode === "slabs" && (
-                                  <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                                    {gr.slabs.map((sl, si) => (
-                                      <div key={si} style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                                        <input type="number" inputMode="numeric" value={sl.kg} placeholder="kg" style={{ flex: 1 }}
-                                          onChange={e => setShipRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], kg: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
-                                        <span style={{ fontSize: 11, color: "#9a9080" }}>kg @</span>
-                                        <input type="number" step="0.01" inputMode="numeric" value={sl.rate} placeholder="₹/kg" style={{ flex: 1 }}
-                                          onChange={e => setShipRates(p => { const slabs = [...p[gk].slabs]; slabs[si] = { ...slabs[si], rate: e.target.value }; return { ...p, [gk]: { ...p[gk], slabs } }; })} />
-                                        {gr.slabs.length > 1 && <button onClick={() => setShipRates(p => { const slabs = p[gk].slabs.filter((_,i) => i !== si); return { ...p, [gk]: { ...p[gk], slabs } }; })} style={{ background: "transparent", color: "#b83020", border: "none", fontSize: 14, cursor: "pointer" }}>✕</button>}
-                                      </div>
-                                    ))}
-                                    <button className="btn btn-outline btn-sm" style={{ alignSelf: "flex-start", fontSize: 11 }}
-                                      onClick={() => setShipRates(p => ({ ...p, [gk]: { ...p[gk], slabs: [...p[gk].slabs, { kg: "", rate: "" }] } }))}>+ Add slab</button>
-                                    <div style={{ fontSize: 10, color: "#9a9080", fontStyle: "italic" }}>Remaining kg assigned to last slab rate</div>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
-                          <button className="btn btn-dark btn-sm" style={{ width: "100%", justifyContent: "center" }}
-                            onClick={() => {
-                              // Assign costRate to all reels in this shipment
-                              const gradeKgs = {};
-                              sh.reels.forEach(r => {
-                                const k2 = `${r.bf}|${r.gsm}`;
-                                if (!gradeKgs[k2]) gradeKgs[k2] = 0;
-                                gradeKgs[k2] += Number(r.weight);
-                              });
-                              update(s => {
-                                s.stock = s.stock.map(r => {
-                                  if (!sh.reels.some(x => x.id === r.id)) return r;
-                                  const k2 = `${r.bf}|${r.gsm}`;
-                                  const gr = shipRates[k2];
-                                  if (!gr) return r;
-                                  const costRate = gr.mode === "simple"
-                                    ? Number(gr.rate) || 0
-                                    : computeWeightedCostRate(gr.slabs, gradeKgs[k2]);
-                                  return { ...r, costRate };
-                                });
-                              });
-                              setEditShipKey(null);
-                            }}>
-                            ✓ Save Rates to All Reels
-                          </button>
-                        </div>
-                      )}
 
                       {/* Weight edit panel */}
                       {editWeightKey === key && (
@@ -1156,10 +911,9 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                       )}
 
                       {/* Size breakdown (read-only when not editing) */}
-                      {editShipKey !== key && editWeightKey !== key && (
+                      {editWeightKey !== key && (
                         Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => {
                           const szTotal = reels.reduce((s, r) => s + Number(r.weight), 0);
-                          const costSet = reels.some(r => r.costRate);
                           return (
                             <div key={sz}>
                               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
@@ -1167,7 +921,6 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                                   <span className="serif" style={{ fontSize: 20 }}>{sz}"</span>
                                   <span className="tag" style={{ fontSize: 10 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
                                   <span style={{ fontSize: 11, color: "#9a9080" }}>{reels.length} reel{reels.length !== 1 ? "s" : ""}</span>
-                                  {costSet && <span style={{ fontSize: 10, color: "#2d6a4f", fontWeight: 600 }}>{fmtRate(reels[0].costRate)}/kg</span>}
                                 </div>
                                 <span style={{ fontSize: 11, fontWeight: 600, color: "#6a6050" }}>{fmt(Math.round(szTotal))} kg</span>
                               </div>
@@ -1183,11 +936,10 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                         })
                       )}
 
-                      <div style={{ borderTop: "1px solid #dde5f0", paddingTop: 10, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                        <div style={{ borderTop: "1px solid #dde5f0", paddingTop: 10, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
                         <span style={{ color: "#9a9080" }}>{sh.reels.length} reels · {availCount} available</span>
                         <div style={{ textAlign: "right" }}>
                           <span style={{ fontWeight: 600, color: "#1a2a4a" }}>{fmt(Math.round(totalWt))} kg total</span>
-                          {(() => { const shipVal = sh.reels.reduce((s, r) => s + (Number(r.costRate)||0)*Number(r.weight), 0); return shipVal > 0 ? <span style={{ display: "block", fontSize: 12, color: "#1e4d8c", fontWeight: 700 }}>{fmtRs(shipVal)} cost value</span> : null; })()}
                         </div>
                       </div>
                     </div>
@@ -1199,9 +951,6 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
         )}
       </div>
     );
-  }
-
-  // ── BULK IMPORT VIEW ──
   }
 
   // ── LIST VIEW ──
@@ -1332,16 +1081,6 @@ function SellTab({ state, update }) {
   const [selected, setSelected] = useState([]);
   const [filter, setFilter] = useState({ bf: "", gsm: "", size: "" });
   const [done, setDone] = useState(null);
-  const [sellRates, setSellRates] = useState({}); // "bf|gsm" -> rate string
-
-  // Auto-load rates from customerData when customer changes
-  useEffect(() => {
-    if (!customer || !state.customerData?.[customer]) { setSellRates({}); return; }
-    const hist = state.customerData[customer]?.rateHistory || {};
-    const rates = {};
-    Object.entries(hist).forEach(([k, arr]) => { if (arr?.length) rates[k] = String(arr[arr.length - 1].rate); });
-    setSellRates(rates);
-  }, [customer]);
 
   const available = state.stock.filter(r => !r.sold);
   const filtered = available.filter(r => {
@@ -1353,52 +1092,30 @@ function SellTab({ state, update }) {
   const selReels = state.stock.filter(r => selected.includes(r.id));
   const totalWt = selReels.reduce((s, r) => s + Number(r.weight), 0);
   const toggleReel = id => setSelected(s => s.includes(id) ? s.filter(x => x !== id) : [...s, id]);
-
-  // Compute sale value from sell rates
-  const totalValue = selReels.reduce((s, r) => {
-    const rate = Number(sellRates[`${r.bf}|${r.gsm}`]) || 0;
-    return s + rate * Number(r.weight);
-  }, 0);
-
-  // Grades present in selection
-  const selGrades = [...new Set(selReels.map(r => `${r.bf}|${r.gsm}`))];
-
   const noStockWarning = filter.size && available.filter(r => r.size === filter.size).length === 0
     ? `No ${filter.size}" reels in stock. Please check the size.` : null;
 
   const sell = () => {
     if (!customer || selected.length === 0) return;
-    const wt = totalWt; const ct = selReels.length; const val = totalValue;
+    const wt = totalWt; const ct = selReels.length;
     update(s => {
       s.stock = s.stock.map(r => {
         if (!selected.includes(r.id)) return r;
-        const soldRate = Number(sellRates[`${r.bf}|${r.gsm}`]) || 0;
-        return { ...r, sold: true, soldDate: date, soldTo: customer, soldChallanNo: challanNo, soldRate };
+        return { ...r, sold: true, soldDate: date, soldTo: customer, soldChallanNo: challanNo };
       });
       if (customer.trim() && !s.customers.includes(customer.trim())) {
         s.customers = [...(s.customers || []), customer.trim()].sort();
       }
-      // Save rate to customerData history if set
-      if (!s.customerData) s.customerData = {};
-      if (!s.customerData[customer]) s.customerData[customer] = { rateHistory: {} };
-      Object.entries(sellRates).forEach(([k, rate]) => {
-        if (!rate) return;
-        const hist = s.customerData[customer].rateHistory[k] || [];
-        const lastRate = hist.length ? hist[hist.length - 1].rate : null;
-        if (String(lastRate) !== String(rate)) {
-          s.customerData[customer].rateHistory[k] = [...hist, { rate: Number(rate), from: date }];
-        }
-      });
     });
-    setDone({ count: ct, wt, customer, val });
+    setDone({ count: ct, wt, customer });
   };
 
   if (done) return (
     <div className="card fade-in" style={{ textAlign: "center", padding: 56 }}>
       <div style={{ fontSize: 44, marginBottom: 16 }}>✓</div>
       <div className="serif" style={{ fontSize: 28 }}>Sale Recorded</div>
-      <div style={{ fontSize: 13, color: "#8a8070", marginTop: 8 }}>{done.count} reels · {fmt(done.wt)} kg · {done.val ? fmtRs(done.val) : "no rate set"} → {done.customer}</div>
-      <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={() => { setDone(null); setSelected([]); setCustomer(""); setChallanNo(suggestedChallan); setSellRates({}); }}>Record Another Sale</button>
+      <div style={{ fontSize: 13, color: "#8a8070", marginTop: 8 }}>{done.count} reels · {fmt(done.wt)} kg → {done.customer}</div>
+      <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={() => { setDone(null); setSelected([]); setCustomer(""); setChallanNo(suggestedChallan); }}>Record Another Sale</button>
     </div>
   );
 
@@ -1417,29 +1134,6 @@ function SellTab({ state, update }) {
         </div>
       </div>
 
-      {/* Sell rates per grade */}
-      {customer && (
-        <div className="card">
-          <h3>Selling Rates — ₹/kg {!selGrades.length && <span style={{ fontWeight: 400, color: "#9a9080", fontSize: 11 }}>(select reels to see grades)</span>}</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {state.grades.map(g => {
-              const k = `${g.bf}|${g.gsm}`;
-              const rate = sellRates[k] || "";
-              const selKg = selReels.filter(r => r.bf === g.bf && r.gsm === g.gsm).reduce((s, r) => s + Number(r.weight), 0);
-              return (
-                <div key={k} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <span style={{ minWidth: 140, fontSize: 12, fontWeight: 500 }}>{g.bf} BF {g.gsm} GSM</span>
-                  <input type="number" step="0.01" inputMode="numeric" value={rate} placeholder="₹/kg"
-                    onChange={e => setSellRates(p => ({ ...p, [k]: e.target.value }))}
-                    style={{ width: 110 }} />
-                  {selKg > 0 && rate && <span style={{ fontSize: 12, color: "#1e4d8c", fontWeight: 600 }}>{fmtRs(selKg * Number(rate))}</span>}
-                  {selKg > 0 && !rate && <span style={{ fontSize: 11, color: "#8aabcc", fontStyle: "italic" }}>rate not set</span>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
       <div className="card">
         <h3>Select Reels Being Sold</h3>
         <div className="g3" style={{ marginBottom: 12 }}>
@@ -1495,7 +1189,6 @@ function SellTab({ state, update }) {
             <div>
               <div className="lbl">Selected for Sale</div>
               <div className="serif" style={{ fontSize: 26, lineHeight: 1.1 }}>{selected.length} reels · {fmt(totalWt)} kg</div>
-              {totalValue > 0 && <div style={{ fontSize: 14, color: "#1e4d8c", fontWeight: 700, marginTop: 4 }}>{fmtRs(totalValue)}</div>}
               {!customer && <div style={{ fontSize: 11, color: "#b83020", marginTop: 6 }}>Enter customer name to confirm.</div>}
             </div>
             <button className="btn btn-dark" style={{ fontSize: 14, padding: "12px 28px" }} onClick={sell} disabled={!customer}>✓ Confirm Sale</button>
@@ -1521,10 +1214,6 @@ function HistoryTab({ state, update }) {
   const [custView, setCustView] = useState("challans"); // "challans" | "customers" | "customerDetail"
   const [selCustomer, setSelCustomer] = useState("");
   const [custSearch, setCustSearch] = useState("");
-  const [ledgerTab, setLedgerTab] = useState("overview"); // "overview"|"rates"|"history"
-  const [bulkForm, setBulkForm] = useState({ grade: "", rate: "", fromDate: "", toDate: today() });
-  const [bulkPreview, setBulkPreview] = useState(null);
-  const [bulkDone, setBulkDone] = useState(false);
 
   const sold = state.stock.filter(r => r.sold);
   const challanMap = {};
@@ -1682,89 +1371,9 @@ function HistoryTab({ state, update }) {
   // Customer ledger data
   const custLedger = selCustomer ? (() => {
     const cs = custStats[selCustomer] || {};
-    const cd = state.customerData?.[selCustomer] || {};
     const custChallans = Object.values(challanMap).filter(c => (c.customer || "") === selCustomer);
-    const revenue = custChallans.reduce((s, ch) => s + ch.reels.reduce((ss, r) => ss + (Number(r.soldRate) || 0) * Number(r.weight), 0), 0);
-    const profit = custChallans.reduce((s, ch) => s + ch.reels.reduce((ss, r) => ss + ((Number(r.soldRate) || 0) - (Number(r.costRate) || 0)) * Number(r.weight), 0), 0);
-    return { cs, cd, revenue, profit, custChallans };
+    return { cs, custChallans };
   })() : null;
-
-  // Bulk apply: compute preview
-  const computeBulkPreview = (form) => {
-    if (!form.grade || !form.rate || !form.fromDate || !selCustomer) return null;
-    const [bf, gsm] = form.grade.split("|");
-    const affected = state.stock.filter(r =>
-      r.sold && r.soldTo === selCustomer &&
-      r.bf === bf && r.gsm === gsm &&
-      r.soldDate >= form.fromDate && r.soldDate <= form.toDate
-    );
-    const challansAffected = [...new Set(affected.map(r => r.soldChallanNo || r.soldDate))];
-    return { reels: affected.length, challans: challansAffected.length, kg: affected.reduce((s, r) => s + Number(r.weight), 0) };
-  };
-
-  const doBulkApply = () => {
-    if (!bulkForm.grade || !bulkForm.rate || !bulkForm.fromDate) return;
-    const [bf, gsm] = bulkForm.grade.split("|");
-    update(s => {
-      s.stock = s.stock.map(r => {
-        if (!r.sold || r.soldTo !== selCustomer) return r;
-        if (r.bf !== bf || r.gsm !== gsm) return r;
-        if (r.soldDate < bulkForm.fromDate || r.soldDate > bulkForm.toDate) return r;
-        return { ...r, soldRate: Number(bulkForm.rate) };
-      });
-      if (!s.customerData) s.customerData = {};
-      if (!s.customerData[selCustomer]) s.customerData[selCustomer] = { rateHistory: {} };
-      const hist = s.customerData[selCustomer].rateHistory[bulkForm.grade] || [];
-      const entry = { rate: Number(bulkForm.rate), from: bulkForm.fromDate, to: bulkForm.toDate };
-      const exists = hist.some(h => h.rate === entry.rate && h.from === entry.from);
-      if (!exists) s.customerData[selCustomer].rateHistory[bulkForm.grade] = [...hist, entry].sort((a,b) => a.from.localeCompare(b.from));
-    });
-    setBulkDone(true); setBulkPreview(null);
-    setTimeout(() => setBulkDone(false), 2500);
-  };
-
-  // Rate trend SVG chart per grade
-  const RateTrendChart = ({ hist, color = "#1e4d8c" }) => {
-    if (!hist || hist.length < 1) return <div style={{ fontSize: 12, color: "#8aabcc", fontStyle: "italic" }}>No rate history yet.</div>;
-    const w = 280, h = 100, padL = 44, padB = 24, padT = 10, padR = 10;
-    const points = hist.map((h, i) => ({ x: h.from, rate: h.rate, label: fmtDate(h.from) }));
-    // Add "today" as last point
-    const today2 = today();
-    if (points[points.length - 1].x !== today2) points.push({ x: today2, rate: points[points.length - 1].rate, label: "Today" });
-    const rates = points.map(p => p.rate);
-    const minR = Math.min(...rates) * 0.97, maxR = Math.max(...rates) * 1.03;
-    const xScale = i => padL + (i / (points.length - 1)) * (w - padL - padR);
-    const yScale = r => padT + (1 - (r - minR) / (maxR - minR || 1)) * (h - padT - padB);
-    const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"}${xScale(i).toFixed(1)},${yScale(p.rate).toFixed(1)}`).join(" ");
-    const areaD = pathD + ` L${xScale(points.length-1).toFixed(1)},${h - padB} L${padL},${h - padB} Z`;
-    return (
-      <svg width="100%" viewBox={`0 0 ${w} ${h + 10}`} style={{ overflow: "visible" }}>
-        {/* Grid lines */}
-        {[0, 0.5, 1].map(t => {
-          const y = padT + t * (h - padT - padB);
-          const val = maxR - t * (maxR - minR);
-          return <g key={t}>
-            <line x1={padL} y1={y} x2={w - padR} y2={y} stroke="#dde5f0" strokeWidth="1" strokeDasharray="3,3"/>
-            <text x={padL - 4} y={y + 4} fontSize="8" textAnchor="end" fill="#9a9080">{fmtRs(Math.round(val))}</text>
-          </g>;
-        })}
-        {/* Area fill */}
-        <path d={areaD} fill={color} opacity="0.08"/>
-        {/* Line */}
-        <path d={pathD} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round"/>
-        {/* Points + labels */}
-        {points.map((p, i) => (
-          <g key={i}>
-            <circle cx={xScale(i)} cy={yScale(p.rate)} r="3.5" fill={color}/>
-            <text x={xScale(i)} y={h - padB + 14} fontSize="7.5" textAnchor="middle" fill="#9a9080"
-              transform={points.length > 4 ? `rotate(-30, ${xScale(i)}, ${h - padB + 14})` : ""}>
-              {p.label}
-            </text>
-          </g>
-        ))}
-      </svg>
-    );
-  };
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} className="fade-in">
@@ -1782,164 +1391,24 @@ function HistoryTab({ state, update }) {
                 { label: "Challans", val: custLedger.cs.challans || 0 },
                 { label: "Reels", val: custLedger.cs.reels || 0 },
                 { label: "Total kg", val: fmt(Math.round(custLedger.cs.kg || 0)) },
-                { label: "Revenue", val: custLedger.revenue ? fmtRs(custLedger.revenue) : "—" },
-                { label: "Profit", val: custLedger.profit ? fmtRs(custLedger.profit) : "—" },
               ].map(s => (
                 <div key={s.label} style={{ background: "#fff", border: "1px solid #dde5f0", borderRadius: 10, padding: "10px 14px", flex: 1, minWidth: 80, textAlign: "center" }}>
                   <div style={{ fontSize: 10, color: "#1e4d8c", textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 4 }}>{s.label}</div>
-                  <div style={{ fontWeight: 700, fontSize: 15, color: s.label === "Profit" && custLedger.profit < 0 ? "#b83020" : "#1a2a4a" }}>{s.val}</div>
+                  <div style={{ fontWeight: 700, fontSize: 15, color: "#1a2a4a" }}>{s.val}</div>
                 </div>
               ))}
             </div>
           )}
 
-          {/* Ledger tabs */}
-          <div style={{ display: "flex", gap: 4, background: "#eef3fb", borderRadius: 10, padding: 4 }}>
-            {[["overview","📊 Overview"], ["rates","₹ Bulk Apply"], ["history","📈 Rate History"]].map(([tab, label]) => (
-              <button key={tab} onClick={() => setLedgerTab(tab)}
-                style={{ flex: 1, padding: "7px 4px", borderRadius: 7, border: "none", background: ledgerTab === tab ? "#fff" : "transparent", color: ledgerTab === tab ? "#1a2a4a" : "#1e4d8c", fontWeight: ledgerTab === tab ? 600 : 400, fontSize: 12, cursor: "pointer", boxShadow: ledgerTab === tab ? "0 1px 4px rgba(0,0,0,0.08)" : "none", transition: "all 0.15s" }}>
-                {label}
-              </button>
-            ))}
-          </div>
-
-          {/* OVERVIEW TAB — current rate card + top sizes */}
-          {ledgerTab === "overview" && custLedger && (
+          {/* Top sizes */}
+          {custLedger?.cs.sizes && (
             <div className="card" style={{ padding: "14px 16px" }}>
-              <h3 style={{ marginBottom: 12 }}>Current Rate Card <span style={{ fontSize: 11, color: "#9a9080", fontWeight: 400 }}>— tap a rate to edit</span></h3>
-              <div style={{ border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
-                {state.grades.map((g, gi) => {
-                  const k = `${g.bf}|${g.gsm}`;
-                  const hist = custLedger.cd?.rateHistory?.[k] || [];
-                  const currentRate = hist.length ? hist[hist.length - 1].rate : null;
-                  const gradeRev = custLedger.custChallans.reduce((s, ch) => s + ch.reels.filter(r => r.bf === g.bf && r.gsm === g.gsm).reduce((ss, r) => ss + (Number(r.soldRate)||0)*Number(r.weight), 0), 0);
-                  return (
-                    <div key={k} style={{ padding: "11px 14px", borderBottom: gi < state.grades.length - 1 ? "1px solid #eef3fb" : "none", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                      <div style={{ flex: 1, fontSize: 13, fontWeight: 500, minWidth: 120 }}>{g.bf} BF {g.gsm} GSM</div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                        <input type="number" step="0.01" inputMode="decimal"
-                          defaultValue={currentRate || ""}
-                          placeholder="₹/kg"
-                          onBlur={e => {
-                            const newRate = parseFloat(e.target.value);
-                            if (!e.target.value || isNaN(newRate)) return;
-                            if (newRate === currentRate) return;
-                            update(s => {
-                              if (!s.customerData) s.customerData = {};
-                              if (!s.customerData[selCustomer]) s.customerData[selCustomer] = { rateHistory: {} };
-                              const h = s.customerData[selCustomer].rateHistory[k] || [];
-                              s.customerData[selCustomer].rateHistory[k] = [...h, { rate: newRate, from: today() }];
-                            });
-                          }}
-                          style={{ width: 90, padding: "5px 8px", fontSize: 13, fontWeight: 600 }} />
-                        <span style={{ fontSize: 11, color: "#9a9080" }}>/kg</span>
-                        {gradeRev > 0 && <span style={{ fontSize: 11, color: "#1e4d8c", marginLeft: 4 }}>{fmtRs(gradeRev)}</span>}
-                      </div>
-                    </div>
-                  );
-                })}
+              <h3>Top Sizes Purchased</h3>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {Object.entries(custLedger.cs.sizes).sort((a,b) => b[1]-a[1]).slice(0,8).map(([sz,cnt]) => (
+                  <span key={sz} className="tag" style={{ fontSize: 12 }}>{sz}" <span style={{ color: "#9a9080" }}>×{cnt}</span></span>
+                ))}
               </div>
-              {custLedger.cs.sizes && (
-                <div style={{ marginTop: 12, fontSize: 12, color: "#1e4d8c" }}>
-                  Top sizes: {Object.entries(custLedger.cs.sizes).sort((a,b) => b[1]-a[1]).slice(0,5).map(([sz,cnt]) => `${sz}" (${cnt}×)`).join(" · ")}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* BULK APPLY TAB */}
-          {ledgerTab === "rates" && (
-            <div className="card" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
-              <h3>Bulk Apply Rate to Past Challans</h3>
-              <p style={{ fontSize: 12, color: "#8a8070", lineHeight: 1.6 }}>Select a grade, enter the rate, and pick a date range. All challans for this customer in that range will have their ₹/kg updated at once.</p>
-              {bulkDone && <div className="ok-box">✓ Rate applied to all matching challans!</div>}
-              <div className="g2">
-                <div>
-                  <label className="lbl">Grade</label>
-                  <select value={bulkForm.grade} onChange={e => { setBulkForm(f => ({...f, grade: e.target.value})); setBulkPreview(null); setBulkDone(false); }}>
-                    <option value="">Select grade</option>
-                    {state.grades.map(g => <option key={g.label} value={`${g.bf}|${g.gsm}`}>{g.bf} BF {g.gsm} GSM</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="lbl">Rate (₹/kg)</label>
-                  <input type="number" step="0.01" inputMode="numeric" value={bulkForm.rate} placeholder="e.g. 42"
-                    onChange={e => { setBulkForm(f => ({...f, rate: e.target.value})); setBulkPreview(null); setBulkDone(false); }} />
-                </div>
-                <div>
-                  <label className="lbl">From Date</label>
-                  <input type="date" value={bulkForm.fromDate} onChange={e => { setBulkForm(f => ({...f, fromDate: e.target.value})); setBulkPreview(null); }} />
-                </div>
-                <div>
-                  <label className="lbl">To Date</label>
-                  <input type="date" value={bulkForm.toDate} onChange={e => { setBulkForm(f => ({...f, toDate: e.target.value})); setBulkPreview(null); }} />
-                </div>
-              </div>
-              {!bulkPreview ? (
-                <button className="btn btn-outline" onClick={() => setBulkPreview(computeBulkPreview(bulkForm))}
-                  disabled={!bulkForm.grade || !bulkForm.rate || !bulkForm.fromDate}>
-                  Preview Changes
-                </button>
-              ) : bulkPreview.reels === 0 ? (
-                <div className="warn-box">No challans found for this grade in that date range.</div>
-              ) : (
-                <div style={{ background: "#fef9ee", border: "1px solid #f0d5a0", borderRadius: 10, padding: "14px 16px" }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>Preview</div>
-                  <div style={{ fontSize: 13, color: "#6a6050", marginBottom: 12 }}>
-                    This will set <strong>{fmtRs(Number(bulkForm.rate))}/kg</strong> on <strong>{bulkPreview.challans} challan{bulkPreview.challans !== 1 ? "s" : ""}</strong> · <strong>{bulkPreview.reels} reels</strong> · <strong>{fmt(Math.round(bulkPreview.kg))} kg</strong>
-                    <br/>Total value: <strong>{fmtRs(bulkPreview.kg * Number(bulkForm.rate))}</strong>
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="btn btn-dark" onClick={doBulkApply}>✓ Apply Rate</button>
-                    <button className="btn btn-outline" onClick={() => setBulkPreview(null)}>Cancel</button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* RATE HISTORY TAB */}
-          {ledgerTab === "history" && custLedger && (
-            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-              {state.grades.map(g => {
-                const k = `${g.bf}|${g.gsm}`;
-                const hist = (custLedger.cd?.rateHistory?.[k] || []).slice().sort((a,b) => a.from.localeCompare(b.from));
-                // Build date ranges: each entry's "to" = next entry's "from" - 1 day (or today)
-                const withRanges = hist.map((h, i) => ({
-                  ...h,
-                  toDisplay: hist[i+1] ? hist[i+1].from : today()
-                }));
-                return (
-                  <div key={k} className="card" style={{ padding: "14px 16px" }}>
-                    <h3 style={{ marginBottom: 12 }}>{g.bf} BF {g.gsm} GSM — Rate History</h3>
-                    {/* Trend chart */}
-                    {hist.length > 0 && (
-                      <div style={{ marginBottom: 14 }}>
-                        <RateTrendChart hist={hist} color="#1e4d8c" />
-                      </div>
-                    )}
-                    {/* Timeline table */}
-                    {withRanges.length === 0 ? (
-                      <div style={{ fontSize: 12, color: "#8aabcc", fontStyle: "italic" }}>No rate history. Use Bulk Apply to add rates.</div>
-                    ) : (
-                      <div style={{ border: "1px solid #dde5f0", borderRadius: 10, overflow: "hidden" }}>
-                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", background: "#eef3fb", padding: "8px 14px" }}>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: "#1e4d8c", textTransform: "uppercase", letterSpacing: "0.07em" }}>From</span>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: "#1e4d8c", textTransform: "uppercase", letterSpacing: "0.07em" }}>To</span>
-                          <span style={{ fontSize: 10, fontWeight: 600, color: "#1e4d8c", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "right" }}>Rate</span>
-                        </div>
-                        {withRanges.reverse().map((h, i) => (
-                          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", padding: "10px 14px", borderTop: "1px solid #eef3fb", background: i === 0 ? "#fdf9f0" : "#fff" }}>
-                            <span style={{ fontSize: 12 }}>{fmtDate(h.from)}</span>
-                            <span style={{ fontSize: 12, color: "#9a9080" }}>{i === 0 ? "Current" : fmtDate(h.toDisplay)}</span>
-                            <span style={{ fontSize: 13, fontWeight: 700, color: "#1e4d8c", textAlign: "right" }}>{fmtRate(h.rate)}/kg</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
             </div>
           )}
         </div>
@@ -2028,7 +1497,6 @@ function HistoryTab({ state, update }) {
                       {ch.challanNo && <><span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span><span style={{ fontSize: 11, color: "#9a9080" }}>Ch {ch.challanNo}</span></>}
                       <span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span>
                       <span style={{ fontSize: 11, color: "#6a6050", fontWeight: 500 }}>{fmt(Math.round(totalWt))} kg</span>
-                      {(() => { const v = ch.reels.reduce((s,r) => s+(Number(r.soldRate)||0)*Number(r.weight),0); return v > 0 ? <><span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span><span style={{ fontSize: 11, color: "#1e4d8c", fontWeight: 700 }}>{fmtRs(v)}</span></> : <span style={{ fontSize: 10, background: "#fef5e8", border: "1px solid #f0d5a0", borderRadius: 4, padding: "1px 6px", color: "#a05800", fontWeight: 600 }}>⚠ no rate</span>; })()}
                       {Object.keys(bySizeInChallan).sort((a, b) => Number(a) - Number(b)).slice(0, 4).map(sz => (
                         <span key={sz} className="tag" style={{ fontSize: 10 }}>{sz}"</span>
                       ))}
@@ -2154,48 +1622,23 @@ function HistoryTab({ state, update }) {
                       </div>
                     )}
 
-                    {/* Sizes + weights grouped by grade with editable rate */}
+                    {/* Sizes + weights grouped by grade */}
                     {(() => {
                       const byGrade = {};
                       ch.reels.forEach(r => {
                         const k = `${r.bf}|${r.gsm}`;
-                        if (!byGrade[k]) byGrade[k] = { bf: r.bf, gsm: r.gsm, reels: [], rate: r.soldRate || "" };
+                        if (!byGrade[k]) byGrade[k] = { bf: r.bf, gsm: r.gsm, reels: [] };
                         byGrade[k].reels.push(r);
-                        if (r.soldRate && !byGrade[k].rate) byGrade[k].rate = r.soldRate;
                       });
-                      const challanVal = Object.values(byGrade).reduce((s, g) => {
-                        const kg = g.reels.reduce((ss, r) => ss + Number(r.weight), 0);
-                        return s + (Number(g.rate) || 0) * kg;
-                      }, 0);
                       return (
                         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                           {Object.entries(byGrade).sort((a, b) => a[0].localeCompare(b[0])).map(([gk, gd]) => {
                             const gradeKg = gd.reels.reduce((s, r) => s + Number(r.weight), 0);
-                            const gradeVal = (Number(gd.rate) || 0) * gradeKg;
                             return (
                               <div key={gk} style={{ background: "#f0f4f9", borderRadius: 10, padding: "10px 12px" }}>
-                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                                   <span className="tag">{gd.bf} BF · {gd.gsm} GSM</span>
                                   <span style={{ fontSize: 12, color: "#1e4d8c" }}>{fmt(Math.round(gradeKg))} kg</span>
-                                  <div style={{ flex: 1 }} />
-                                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                    <input
-                                      type="number" inputMode="numeric"
-                                      value={gd.rate}
-                                      placeholder="₹/kg"
-                                      onChange={e => {
-                                        const newRate = e.target.value;
-                                        update(s => {
-                                          s.stock = s.stock.map(r =>
-                                            gd.reels.some(x => x.id === r.id) ? { ...r, soldRate: newRate ? Number(newRate) : undefined } : r
-                                          );
-                                        });
-                                      }}
-                                      style={{ width: 80, padding: "4px 8px", fontSize: 12 }}
-                                    />
-                                    <span style={{ fontSize: 11, color: "#1e4d8c" }}>/kg</span>
-                                    {gradeVal > 0 && <span style={{ fontSize: 12, fontWeight: 700, color: "#1a2a4a" }}>{fmtRs(gradeVal)}</span>}
-                                  </div>
                                 </div>
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
                                   {gd.reels.sort((a, b) => Number(a.size) - Number(b.size) || Number(a.weight) - Number(b.weight)).map(r => (
@@ -2207,11 +1650,8 @@ function HistoryTab({ state, update }) {
                               </div>
                             );
                           })}
-                          <div style={{ paddingTop: 10, borderTop: "1px solid #dde5f0", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 13 }}>
+                          <div style={{ paddingTop: 10, borderTop: "1px solid #dde5f0", fontSize: 13 }}>
                             <span style={{ color: "#9a9080" }}>{ch.reels.length} reels · {fmt(Math.round(totalWt))} kg</span>
-                            <span style={{ fontWeight: 700, color: "#1a2a4a", fontSize: 15 }}>
-                              {challanVal > 0 ? fmtRs(challanVal) : <span style={{ color: "#8aabcc", fontStyle: "italic", fontSize: 12 }}>Add ₹/kg to see total</span>}
-                            </span>
                           </div>
                         </div>
                       );
@@ -2241,313 +1681,6 @@ function HistoryTab({ state, update }) {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ─── REPORTS ─────────────────────────────────────────────────────────────────
-function toISOWeek(date) {
-  const d = new Date(date); d.setHours(0,0,0,0);
-  d.setDate(d.getDate() + 3 - (d.getDay() + 6) % 7);
-  const w1 = new Date(d.getFullYear(), 0, 4);
-  return `${d.getFullYear()}-W${String(1 + Math.round(((d - w1) / 86400000 - 3 + (w1.getDay() + 6) % 7) / 7)).padStart(2,"0")}`;
-}
-function weekToRange(ws) {
-  if (!ws || !ws.includes("-W")) return [new Date(), new Date()];
-  const [yr, wk] = ws.split("-W");
-  const jan4 = new Date(Number(yr), 0, 4);
-  const w1Mon = new Date(jan4); w1Mon.setDate(jan4.getDate() - (jan4.getDay() + 6) % 7);
-  const mon = new Date(w1Mon); mon.setDate(w1Mon.getDate() + (Number(wk)-1)*7); mon.setHours(0,0,0,0);
-  const sun = new Date(mon); sun.setDate(mon.getDate()+6); sun.setHours(23,59,59,999);
-  return [mon, sun];
-}
-function fmtWeekLabel(ws) {
-  if (!ws || !ws.includes("-W")) return ws;
-  const [mon, sun] = weekToRange(ws);
-  return `${mon.toLocaleDateString("en-IN",{day:"numeric",month:"short"})} – ${sun.toLocaleDateString("en-IN",{day:"numeric",month:"short",year:"numeric"})}`;
-}
-
-function ReportsTab({ state }) {
-  const sold = state.stock.filter(r => r.sold && r.soldDate);
-  const [periodMode, setPeriodMode] = useState("month"); // "day" | "week" | "month" | "all"
-  const [selDate,  setSelDate]  = useState(today());
-  const [selWeek,  setSelWeek]  = useState(toISOWeek(new Date()));
-  const [selMonth, setSelMonth] = useState(() => {
-    const months = [...new Set(sold.map(r => monthKey(r.soldDate)).filter(Boolean))].sort().reverse();
-    return months[0] || today().slice(0, 7);
-  });
-
-  const periodSold = (() => {
-    if (periodMode === "all") return sold;
-    if (periodMode === "day") {
-      return sold.filter(r => r.soldDate === selDate);
-    }
-    if (periodMode === "week") {
-      const [mon, sun] = weekToRange(selWeek);
-      return sold.filter(r => { const d = new Date(r.soldDate); return d >= mon && d <= sun; });
-    }
-    if (periodMode === "month") return sold.filter(r => monthKey(r.soldDate) === selMonth);
-    return sold;
-  })();
-
-  const periodLabelStr = (() => {
-    if (periodMode === "all") return "All Time";
-    if (periodMode === "day") return fmtDate(selDate);
-    if (periodMode === "week") return fmtWeekLabel(selWeek);
-    if (periodMode === "month") return monthLabel(selMonth);
-  })();
-
-  const allMonths = [...new Set(sold.map(r => monthKey(r.soldDate)))].sort().reverse();
-  const totalReels = periodSold.length;
-  const totalKg = periodSold.reduce((s, r) => s + Number(r.weight), 0);
-  const totalTons = totalKg / 1000;
-  const gradeMap = {};
-  periodSold.forEach(r => { const k = `${r.bf} BF ${r.gsm} GSM`; if (!gradeMap[k]) gradeMap[k] = { reels: 0, kg: 0 }; gradeMap[k].reels++; gradeMap[k].kg += Number(r.weight); });
-  const sizeMap = {};
-  periodSold.forEach(r => { sizeMap[r.size] = (sizeMap[r.size] || 0) + 1; });
-  const topSizes = Object.entries(sizeMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  const custMap = {};
-  periodSold.forEach(r => {
-    const c = r.soldTo || "Unknown";
-    if (!custMap[c]) custMap[c] = { reels: 0, kg: 0, revenue: 0, profit: 0, sizes: {}, grades: {} };
-    custMap[c].reels++; custMap[c].kg += Number(r.weight);
-    custMap[c].revenue += (Number(r.soldRate) || 0) * Number(r.weight);
-    custMap[c].profit += ((Number(r.soldRate) || 0) - (Number(r.costRate) || 0)) * Number(r.weight);
-    custMap[c].sizes[r.size] = (custMap[c].sizes[r.size] || 0) + 1;
-    custMap[c].grades[`${r.bf} BF ${r.gsm} GSM`] = (custMap[c].grades[`${r.bf} BF ${r.gsm} GSM`] || 0) + 1;
-  });
-  const top5Cust = Object.entries(custMap).sort((a, b) => b[1].kg - a[1].kg).slice(0, 5);
-  const last6 = allMonths.slice(0, 6).reverse();
-  const trendData = last6.map(m => ({ label: monthLabel(m).split(" ")[0], value: sold.filter(r => monthKey(r.soldDate) === m).reduce((s, r) => s + Number(r.weight), 0) }));
-  const avgWeight = totalReels > 0 ? (totalKg / totalReels).toFixed(0) : 0;
-  const topSize = topSizes[0]?.[0] || "—";
-  const showTrend = periodMode === "all" || periodMode === "month";
-
-  if (sold.length === 0) return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }} className="fade-in">
-      <div><div className="section-eyebrow">Analytics</div><h2>Reports</h2></div>
-      <div className="card" style={{ textAlign: "center", padding: 52 }}>
-        <div style={{ fontSize: 36, marginBottom: 14 }}>📊</div>
-        <div className="serif-italic" style={{ fontSize: 20, color: "#9a9080" }}>No sales data yet.</div>
-        <div style={{ fontSize: 13, color: "#8aabcc", marginTop: 6 }}>Record some sales to see your analytics here.</div>
-      </div>
-    </div>
-  );
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 24 }} className="fade-in">
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 }}>
-        <div><div className="section-eyebrow">Analytics</div><h2>Reports</h2></div>
-        <div className="card" style={{ padding: "12px 16px", display: "flex", flexDirection: "column", gap: 10, minWidth: 260 }}>
-          {/* Mode tabs */}
-          <div style={{ display: "flex", gap: 4 }}>
-            {[["day","Day"],["week","Week"],["month","Month"],["all","All Time"]].map(([m, label]) => (
-              <button key={m} onClick={() => setPeriodMode(m)}
-                style={{ flex: 1, padding: "5px 0", borderRadius: 6, border: `1.5px solid ${periodMode === m ? "#1a2a4a" : "#d0dced"}`, background: periodMode === m ? "#1a2a4a" : "transparent", color: periodMode === m ? "#fff" : "#6a6050", fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.15s" }}>
-                {label}
-              </button>
-            ))}
-          </div>
-          {/* Value picker */}
-          {periodMode === "day"   && <input type="date"  value={selDate}  onChange={e => setSelDate(e.target.value)}  style={{ width: "100%" }} />}
-          {periodMode === "week"  && <input type="week"  value={selWeek}  onChange={e => setSelWeek(e.target.value)}  style={{ width: "100%" }} />}
-          {periodMode === "month" && <input type="month" value={selMonth} onChange={e => setSelMonth(e.target.value)} style={{ width: "100%" }} />}
-          {periodMode === "all"   && <div style={{ fontSize: 12, color: "#9a9080", paddingTop: 2 }}>Showing all recorded sales</div>}
-          <div style={{ fontSize: 11, color: "#1e4d8c", fontWeight: 500 }}>{periodLabelStr}</div>
-        </div>
-      </div>
-
-      {/* ── DATA COMPLETENESS CARD ── */}
-      {(() => {
-        const allSold = state.stock.filter(r => r.sold);
-        const missingSellRate = allSold.filter(r => !r.soldRate);
-        const missingCostRate = state.stock.filter(r => !r.costRate);
-        const missingChallans = [...new Set(missingSellRate.map(r => r.soldChallanNo || `${r.soldDate}|${r.soldTo}`))];
-        const missingShipments = [...new Set(missingCostRate.map(r => r.invoiceNo || `${r.inwardDate}|${r.supplier}`))];
-        const totalEntries = [...new Set(allSold.map(r => r.soldChallanNo || `${r.soldDate}|${r.soldTo}`))].length + [...new Set(state.stock.map(r => r.invoiceNo || `${r.inwardDate}|${r.supplier}`))].length;
-        const missingCount = missingChallans.length + missingShipments.length;
-        const pct = totalEntries > 0 ? Math.round(((totalEntries - missingCount) / totalEntries) * 100) : 100;
-        if (missingCount === 0) return (
-          <div className="ok-box" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span>✓</span><span>All entries have rates set — reports are fully accurate.</span>
-          </div>
-        );
-        return (
-          <div style={{ background: "#eef3fb", border: "1px solid #c8d8f0", borderRadius: 14, padding: "16px 18px" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12, flexWrap: "wrap", gap: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <span style={{ fontSize: 16 }}>⚠️</span>
-                <span style={{ fontWeight: 600, fontSize: 14, color: "#1a3a6e" }}>Report Incomplete — Missing Rates</span>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <div style={{ background: "#c8d8f0", borderRadius: 20, height: 6, width: 100, overflow: "hidden" }}>
-                  <div style={{ background: "#1e4d8c", height: "100%", width: `${pct}%`, borderRadius: 20, transition: "width 0.4s" }} />
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 600, color: "#1a3a6e" }}>{pct}% complete</span>
-              </div>
-            </div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-              {missingChallans.length > 0 && (
-                <div style={{ background: "#fff", border: "1px solid #c8d8f0", borderRadius: 10, padding: "10px 14px", flex: 1, minWidth: 160 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1a3a6e", marginBottom: 4 }}>
-                    {missingChallans.length} challan{missingChallans.length !== 1 ? "s" : ""} — no sell rate
-                  </div>
-                  <div style={{ fontSize: 11, color: "#6a7a9a", lineHeight: 1.6 }}>
-                    {missingSellRate.length} reels · {fmt(Math.round(missingSellRate.reduce((s,r) => s+Number(r.weight),0)))} kg unpriced
-                  </div>
-                  <div style={{ fontSize: 11, color: "#6a7a9a", marginTop: 6, fontStyle: "italic" }}>Go to History → open challan → set ₹/kg</div>
-                </div>
-              )}
-              {missingShipments.length > 0 && (
-                <div style={{ background: "#fff", border: "1px solid #c8d8f0", borderRadius: 10, padding: "10px 14px", flex: 1, minWidth: 160 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: "#1a3a6e", marginBottom: 4 }}>
-                    {missingShipments.length} shipment{missingShipments.length !== 1 ? "s" : ""} — no cost rate
-                  </div>
-                  <div style={{ fontSize: 11, color: "#6a7a9a", lineHeight: 1.6 }}>
-                    {missingCostRate.length} reels · {fmt(Math.round(missingCostRate.reduce((s,r) => s+Number(r.weight),0)))} kg uncosted
-                  </div>
-                  <div style={{ fontSize: 11, color: "#6a7a9a", marginTop: 6, fontStyle: "italic" }}>Go to Stock → Inward History → set rates</div>
-                </div>
-              )}
-            </div>
-          </div>
-        );
-      })()}
-        {(() => {
-          const revenue = periodSold.reduce((s, r) => s + (Number(r.soldRate) || 0) * Number(r.weight), 0);
-          const cost = periodSold.reduce((s, r) => s + (Number(r.costRate) || 0) * Number(r.weight), 0);
-          const profit = revenue - cost;
-          return [
-            { label: "Reels Sold", val: totalReels, unit: "reels" },
-            { label: "Total Weight", val: totalTons.toFixed(2), unit: "tons" },
-            { label: "Revenue", val: revenue ? fmtRs(revenue) : "—", unit: "selling value" },
-            { label: "Gross Profit", val: profit && revenue ? fmtRs(profit) : "—", unit: revenue ? `${((profit/revenue)*100).toFixed(1)}% margin` : "set rates to calculate" },
-          ];
-        })().map(s => (
-          <div key={s.label} className="card" style={{ padding: "18px 20px" }}>
-            <div className="lbl">{s.label}</div>
-            <div className="stat-num" style={{ fontSize: 28 }}>{s.val}</div>
-            <div className="serif-italic" style={{ fontSize: 12, color: "#8aabcc", marginTop: 3 }}>{s.unit}</div>
-          </div>
-        ))}
-      </div>
-      {showTrend && trendData.length > 1 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div className="card">
-            <h3>Monthly Weight Dispatched</h3>
-            <BarChart data={trendData} color="#1e4d8c" unit="t" height={100} />
-            <div style={{ fontSize: 11, color: "#8aabcc", marginTop: 8, fontStyle: "italic" }}>Last {trendData.length} months. Darker bar = most recent.</div>
-          </div>
-          {(() => {
-            const revData = last6.map(m => ({ label: monthLabel(m).split(" ")[0], value: sold.filter(r => monthKey(r.soldDate) === m).reduce((s, r) => s + (Number(r.soldRate)||0)*Number(r.weight), 0) }));
-            const profData = last6.map(m => ({ label: monthLabel(m).split(" ")[0], value: sold.filter(r => monthKey(r.soldDate) === m).reduce((s, r) => s + ((Number(r.soldRate)||0)-(Number(r.costRate)||0))*Number(r.weight), 0) }));
-            const hasRevData = revData.some(d => d.value > 0);
-            const hasProfData = profData.some(d => d.value !== 0);
-            return (
-              <>
-                {hasRevData && (
-                  <div className="card">
-                    <h3>Monthly Revenue (₹)</h3>
-                    <BarChart data={revData} color="#2d6a4f" height={100} />
-                    <div style={{ fontSize: 11, color: "#8aabcc", marginTop: 8, fontStyle: "italic" }}>Based on challans with selling rates set.</div>
-                  </div>
-                )}
-                {hasProfData && (
-                  <div className="card">
-                    <h3>Monthly Gross Profit (₹)</h3>
-                    <BarChart data={profData} color="#1a2a4a" height={100} />
-                    <div style={{ fontSize: 11, color: "#8aabcc", marginTop: 8, fontStyle: "italic" }}>Only accurate for challans with both cost and sell rates set.</div>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-        </div>
-      )}
-      <div className="g2">
-        <div className="card">
-          <h3>Sales by Grade</h3>
-          <PieChart data={Object.entries(gradeMap).map(([k, v]) => ({ label: k, value: v.kg }))} size={140} />
-          <div className="sep" />
-          <table style={{ fontSize: 12 }}>
-            <thead><tr><th>Grade</th><th>Reels</th><th>Weight</th></tr></thead>
-            <tbody>
-              {Object.entries(gradeMap).sort((a, b) => b[1].kg - a[1].kg).map(([k, v]) => (
-                <tr key={k}><td style={{ fontWeight: 500 }}>{k}</td><td>{v.reels}</td><td>{fmt(Math.round(v.kg))} kg</td></tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="card">
-          <h3>Most Popular Sizes</h3>
-          <PieChart data={topSizes.map(([sz, cnt]) => ({ label: sz + '"', value: cnt }))} size={140} />
-          <div className="sep" />
-          <table style={{ fontSize: 12 }}>
-            <thead><tr><th>Size</th><th>Reels Sold</th><th>Share</th></tr></thead>
-            <tbody>
-              {topSizes.map(([sz, cnt]) => (
-                <tr key={sz}>
-                  <td><span className="serif" style={{ fontSize: 17 }}>{sz}"</span></td>
-                  <td>{cnt}</td>
-                  <td style={{ color: "#9a9080" }}>{((cnt / totalReels) * 100).toFixed(1)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-      <div className="card">
-        <h3>Top 5 Customers</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
-          {top5Cust.map(([name, data], idx) => {
-            const topSz = Object.entries(data.sizes).sort((a, b) => b[1] - a[1])[0];
-            const topGr = Object.entries(data.grades).sort((a, b) => b[1] - a[1])[0];
-            const barW = top5Cust[0] ? (data.kg / top5Cust[0][1].kg) * 100 : 0;
-            return (
-              <div key={name} style={{ padding: "16px 0", borderBottom: idx < top5Cust.length - 1 ? "1px solid #e8eef8" : "none" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 28, height: 28, background: CHART_COLORS[idx], borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, fontWeight: 600 }}>{idx + 1}</div>
-                    <div>
-                      <div style={{ fontWeight: 600, fontSize: 14 }}>{name}</div>
-                      <div style={{ fontSize: 11, color: "#9a9080", marginTop: 2 }}>{data.reels} reels · {fmt(Math.round(data.kg))} kg · {(data.kg / 1000).toFixed(2)} tons</div>
-                    </div>
-                  </div>
-              <div style={{ textAlign: "right" }}>
-                    {data.revenue > 0 && <div style={{ fontSize: 12, fontWeight: 700, color: "#1a2a4a" }}>{fmtRs(data.revenue)}</div>}
-                    {data.profit !== 0 && data.revenue > 0 && <div style={{ fontSize: 11, color: data.profit >= 0 ? "#2d6a4f" : "#b83020" }}>{fmtRs(data.profit)} profit</div>}
-                    {topSz && <div style={{ fontSize: 11, color: "#9a9080", marginTop: 2 }}>Top: {topSz[0]}" ({topSz[1]}×)</div>}
-                  </div>
-                </div>
-                <div style={{ background: "#e8eef8", borderRadius: 3, height: 4, overflow: "hidden" }}>
-                  <div style={{ width: `${barW}%`, height: "100%", background: CHART_COLORS[idx], borderRadius: 3, transition: "width 0.5s ease" }} />
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
-                  {Object.entries(data.sizes).sort((a, b) => b[1] - a[1]).map(([sz, cnt]) => (
-                    <span key={sz} className="tag" style={{ fontSize: 10 }}>{sz}" × {cnt}</span>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-      <div className="card" style={{ background: "#1a2a4a", color: "#f4f7fb", border: "none" }}>
-        <h3 style={{ color: "#a09080", marginBottom: 16 }}>Key Insights — {periodLabelStr}</h3>
-        <div className="g3">
-          {[
-            { label: "Top Size", val: topSize + '"', sub: "most reels sold" },
-            { label: "Top Customer", val: top5Cust[0]?.[0] || "—", sub: `${fmt(Math.round(top5Cust[0]?.[1].kg || 0))} kg bought` },
-            { label: "Top Grade", val: Object.entries(gradeMap).sort((a, b) => b[1].kg - a[1].kg)[0]?.[0]?.replace(" GSM", "").replace(" BF", "BF /") || "—", sub: "by weight" },
-          ].map(x => (
-            <div key={x.label}>
-              <div className="lbl" style={{ color: "#6a5a4a" }}>{x.label}</div>
-              <div className="serif" style={{ fontSize: 22, color: "#f4f7fb", lineHeight: 1.2 }}>{x.val}</div>
-              <div className="serif-italic" style={{ fontSize: 12, color: "#6a5a4a", marginTop: 4 }}>{x.sub}</div>
-            </div>
-          ))}
-        </div>
-      </div>
     </div>
   );
 }

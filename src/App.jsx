@@ -44,10 +44,63 @@ function today() { return new Date().toISOString().slice(0, 10); }
 function monthKey(d) { return d ? d.slice(0, 7) : ""; }
 function monthLabel(k) { if (!k) return ""; const [y, m] = k.split("-"); return new Date(y, m - 1).toLocaleDateString("en-IN", { month: "short", year: "numeric" }); }
 
-const TABS = ["Home", "Stock", "Sell", "History", "Settings"];
+const TABS = ["Home", "Stock", "Sell", "History", "Reports", "Settings"];
+
+function weekKey(d) { if (!d) return ""; const dt = new Date(d); const day = dt.getDay(); const diff = dt.getDate() - day + (day === 0 ? -6 : 1); const mon = new Date(dt.setDate(diff)); return mon.toISOString().slice(0, 10); }
+function weekLabel(k) { if (!k) return ""; const s = new Date(k); const e = new Date(k); e.setDate(e.getDate() + 6); return `${s.getDate()} ${s.toLocaleDateString("en-IN", { month: "short" })} – ${e.getDate()} ${e.toLocaleDateString("en-IN", { month: "short" })}`; }
 
 // ─── CHART HELPERS ────────────────────────────────────────────────────────────
 const CHART_COLORS = ["#1e3a6e", "#1e4d8c", "#5a8a5a", "#5a6a8a", "#8a4a4a", "#6a5a8a", "#8a7a3a", "#3a7a8a"];
+
+function PieChart({ data, size = 160 }) {
+  if (!data?.length) return null;
+  const total = data.reduce((s, d) => s + d.value, 0);
+  if (total === 0) return null;
+  let cumAngle = -Math.PI / 2;
+  const cx = size / 2, cy = size / 2, r = size / 2 - 8;
+  const slices = data.map((d, i) => {
+    const angle = (d.value / total) * 2 * Math.PI;
+    const x1 = cx + r * Math.cos(cumAngle);
+    const y1 = cy + r * Math.sin(cumAngle);
+    cumAngle += angle;
+    const x2 = cx + r * Math.cos(cumAngle);
+    const y2 = cy + r * Math.sin(cumAngle);
+    const large = angle > Math.PI ? 1 : 0;
+    return { path: `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large},1 ${x2},${y2} Z`, color: CHART_COLORS[i % CHART_COLORS.length], label: d.label, pct: ((d.value / total) * 100).toFixed(1) };
+  });
+  return (
+    <div style={{ display: "flex", alignItems: "center", gap: 20, flexWrap: "wrap" }}>
+      <svg width={size} height={size} style={{ flexShrink: 0 }}>
+        {slices.map((s, i) => <path key={i} d={s.path} fill={s.color} stroke="#fff" strokeWidth={1.5} />)}
+      </svg>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {slices.map((s, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12 }}>
+            <div style={{ width: 10, height: 10, borderRadius: 2, background: s.color, flexShrink: 0 }} />
+            <span style={{ color: "#1a2a4a", fontWeight: 500 }}>{s.label}</span>
+            <span style={{ color: "#9a9080" }}>{s.pct}%</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function BarChart({ data, color = "#1e4d8c", unit = "", height = 120 }) {
+  if (!data?.length) return null;
+  const max = Math.max(...data.map(d => d.value), 1);
+  return (
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 6, height: height + 32, paddingTop: 4 }}>
+      {data.map((d, i) => (
+        <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 4, flex: 1, minWidth: 28 }}>
+          <div style={{ fontSize: 10, color: "#9a9080", fontWeight: 500 }}>{d.value > 0 ? (unit === "t" ? (d.value / 1000).toFixed(1) + "t" : fmt(d.value)) : ""}</div>
+          <div style={{ width: "100%", background: i === data.length - 1 ? color : "#c8d8f0", borderRadius: "3px 3px 0 0", height: Math.max((d.value / max) * height, d.value > 0 ? 4 : 0), transition: "height 0.4s ease", minHeight: d.value > 0 ? 4 : 0 }} />
+          <div style={{ fontSize: 10, color: "#9a9080", textAlign: "center", lineHeight: 1.2 }}>{d.label}</div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 // ─── CUSTOMER AUTOCOMPLETE ────────────────────────────────────────────────────
 function CustomerInput({ value, onChange, customers, placeholder = "Buyer / Corrugater name" }) {
@@ -297,6 +350,7 @@ export default function App() {
         {tab === "Stock"    && <StockTab    state={state} update={update} stockNav={stockNav} clearStockNav={() => setStockNav(null)} />}
         {tab === "Sell"     && <SellTab     state={state} update={update} />}
         {tab === "History"  && <HistoryTab  state={state} update={update} />}
+        {tab === "Reports"  && <ReportsTab  state={state} />}
         {tab === "Settings" && <SettingsTab state={state} update={update} />}
       </div>
     </div>
@@ -1681,6 +1735,315 @@ function HistoryTab({ state, update }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ─── REPORTS ─────────────────────────────────────────────────────────────────
+function ReportsTab({ state }) {
+  const [periodMode, setPeriodMode] = useState("month"); // "day" | "week" | "month" | "all"
+  const [selDay, setSelDay] = useState(today());
+  const [selWeek, setSelWeek] = useState("");
+  const [selMonth, setSelMonth] = useState("");
+
+  const sold = state.stock.filter(r => r.sold && r.soldDate);
+
+  // Build available options
+  const allDays = [...new Set(sold.map(r => r.soldDate))].sort().reverse();
+  const allWeeks = [...new Set(sold.map(r => weekKey(r.soldDate)).filter(Boolean))].sort().reverse();
+  const allMonths = [...new Set(sold.map(r => monthKey(r.soldDate)))].sort().reverse();
+
+  // Init selectors to latest available
+  useState(() => { if (allMonths.length) setSelMonth(allMonths[0]); if (allWeeks.length) setSelWeek(allWeeks[0]); });
+
+  // Filter sold reels by period
+  let periodSold = sold;
+  if (periodMode === "day") periodSold = sold.filter(r => r.soldDate === selDay);
+  else if (periodMode === "week") periodSold = selWeek ? sold.filter(r => weekKey(r.soldDate) === selWeek) : [];
+  else if (periodMode === "month") periodSold = selMonth ? sold.filter(r => monthKey(r.soldDate) === selMonth) : [];
+
+  const totalReels = periodSold.length;
+  const totalKg = periodSold.reduce((s, r) => s + Number(r.weight), 0);
+  const totalTons = totalKg / 1000;
+  const avgWeight = totalReels > 0 ? (totalKg / totalReels).toFixed(0) : 0;
+
+  // Grade breakdown
+  const gradeMap = {};
+  periodSold.forEach(r => {
+    const k = `${r.bf} BF ${r.gsm} GSM`;
+    if (!gradeMap[k]) gradeMap[k] = { reels: 0, kg: 0 };
+    gradeMap[k].reels++; gradeMap[k].kg += Number(r.weight);
+  });
+
+  // Size breakdown
+  const sizeMap = {};
+  periodSold.forEach(r => { sizeMap[r.size] = (sizeMap[r.size] || 0) + 1; });
+  const topSizes = Object.entries(sizeMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const topSize = topSizes[0]?.[0] || "—";
+
+  // Customer breakdown
+  const custMap = {};
+  periodSold.forEach(r => {
+    const c = r.soldTo || "Unknown";
+    if (!custMap[c]) custMap[c] = { reels: 0, kg: 0, sizes: {}, grades: {} };
+    custMap[c].reels++; custMap[c].kg += Number(r.weight);
+    custMap[c].sizes[r.size] = (custMap[c].sizes[r.size] || 0) + 1;
+    custMap[c].grades[`${r.bf} BF ${r.gsm} GSM`] = (custMap[c].grades[`${r.bf} BF ${r.gsm} GSM`] || 0) + 1;
+  });
+  const top5Cust = Object.entries(custMap).sort((a, b) => b[1].kg - a[1].kg).slice(0, 5);
+
+  // Trend bar chart — last 8 months always
+  const last8Months = allMonths.slice(0, 8).reverse();
+  const trendData = last8Months.map(m => ({
+    label: monthLabel(m).split(" ")[0],
+    value: sold.filter(r => monthKey(r.soldDate) === m).reduce((s, r) => s + Number(r.weight), 0)
+  }));
+
+  // Weekly trend (last 8 weeks)
+  const last8Weeks = allWeeks.slice(0, 8).reverse();
+  const weekTrend = last8Weeks.map(w => ({
+    label: weekLabel(w).split("–")[0].trim(),
+    value: sold.filter(r => weekKey(r.soldDate) === w).reduce((s, r) => s + Number(r.weight), 0)
+  }));
+
+  const periodLabel = periodMode === "all" ? "All Time"
+    : periodMode === "day" ? fmtDate(selDay)
+    : periodMode === "week" ? (selWeek ? weekLabel(selWeek) : "Select a week")
+    : selMonth ? monthLabel(selMonth) : "Select a month";
+
+  if (sold.length === 0) return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 20 }} className="fade-in">
+      <div><div className="section-eyebrow">Analytics</div><h2>Reports</h2></div>
+      <div className="card" style={{ textAlign: "center", padding: 52 }}>
+        <div style={{ fontSize: 36, marginBottom: 14 }}>📊</div>
+        <div className="serif-italic" style={{ fontSize: 20, color: "#9a9080" }}>No sales data yet.</div>
+        <div style={{ fontSize: 13, color: "#b0a898", marginTop: 6 }}>Record some sales to see analytics here.</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 24 }} className="fade-in">
+      {/* Header + period selector */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", flexWrap: "wrap", gap: 12 }}>
+        <div><div className="section-eyebrow">Analytics</div><h2>Reports</h2></div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          {["day","week","month","all"].map(m => (
+            <button key={m} onClick={() => setPeriodMode(m)}
+              style={{ padding: "6px 14px", borderRadius: 7, border: `1.5px solid ${periodMode === m ? "#1e4d8c" : "#dde5f0"}`, background: periodMode === m ? "#1e4d8c" : "transparent", color: periodMode === m ? "#fff" : "#9a9080", fontSize: 12, fontWeight: 500, cursor: "pointer", transition: "all 0.15s", textTransform: "capitalize" }}>
+              {m === "all" ? "All Time" : m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Sub-selector for day/week/month */}
+      {periodMode === "day" && (
+        <div className="card" style={{ padding: "12px 18px" }}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+            <label className="lbl" style={{ marginBottom: 0 }}>Select Day</label>
+            <input type="date" value={selDay} onChange={e => setSelDay(e.target.value)} style={{ width: "auto", padding: "6px 10px" }} />
+            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+              {allDays.slice(0, 10).map(d => (
+                <button key={d} onClick={() => setSelDay(d)}
+                  style={{ padding: "4px 10px", borderRadius: 6, border: `1px solid ${selDay === d ? "#1e4d8c" : "#dde5f0"}`, background: selDay === d ? "#eef3fb" : "transparent", color: selDay === d ? "#1e4d8c" : "#9a9080", fontSize: 11, cursor: "pointer" }}>
+                  {fmtDate(d)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+      {periodMode === "week" && allWeeks.length > 0 && (
+        <div className="card" style={{ padding: "12px 18px" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <label className="lbl" style={{ marginBottom: 0 }}>Select Week</label>
+            <select value={selWeek} onChange={e => setSelWeek(e.target.value)} style={{ width: "auto", padding: "6px 10px" }}>
+              {allWeeks.map(w => <option key={w} value={w}>{weekLabel(w)}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+      {periodMode === "month" && allMonths.length > 0 && (
+        <div className="card" style={{ padding: "12px 18px" }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <label className="lbl" style={{ marginBottom: 0 }}>Select Month</label>
+            <select value={selMonth} onChange={e => setSelMonth(e.target.value)} style={{ width: "auto", padding: "6px 10px" }}>
+              {allMonths.map(m => <option key={m} value={m}>{monthLabel(m)}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
+
+      {/* Key stats */}
+      <div className="g4">
+        {[
+          { label: "Reels Sold", val: totalReels, unit: "reels" },
+          { label: "Total Weight", val: totalTons.toFixed(2), unit: "metric tons" },
+          { label: "Total Weight (kg)", val: fmt(Math.round(totalKg)), unit: "kilograms" },
+          { label: "Avg Reel Weight", val: avgWeight, unit: "kg per reel" },
+        ].map(s => (
+          <div key={s.label} className="card" style={{ padding: "18px 20px" }}>
+            <div className="lbl">{s.label}</div>
+            <div className="stat-num" style={{ fontSize: 32 }}>{s.val}</div>
+            <div className="serif-italic" style={{ fontSize: 12, color: "#b0a898", marginTop: 3 }}>{s.unit}</div>
+          </div>
+        ))}
+      </div>
+
+      {totalReels === 0 && (
+        <div className="card" style={{ textAlign: "center", padding: 36 }}>
+          <div className="serif-italic" style={{ fontSize: 17, color: "#b0a898" }}>No sales data for {periodLabel}.</div>
+        </div>
+      )}
+
+      {totalReels > 0 && <>
+        {/* Trend charts */}
+        {trendData.length > 1 && (
+          <div className="card">
+            <h3>Monthly Sales Trend — Weight Dispatched (last {trendData.length} months)</h3>
+            <BarChart data={trendData} color="#1e4d8c" unit="t" height={110} />
+            <div style={{ fontSize: 11, color: "#b0a898", marginTop: 8, fontStyle: "italic" }}>Darker bar = most recent month.</div>
+          </div>
+        )}
+        {weekTrend.length > 1 && periodMode !== "day" && (
+          <div className="card">
+            <h3>Weekly Sales Trend — Weight Dispatched (last {weekTrend.length} weeks)</h3>
+            <BarChart data={weekTrend} color="#2a5298" unit="t" height={100} />
+            <div style={{ fontSize: 11, color: "#b0a898", marginTop: 8, fontStyle: "italic" }}>Each bar = one week. Darker = most recent.</div>
+          </div>
+        )}
+
+        {/* Grade + Size breakdown */}
+        <div className="g2">
+          <div className="card">
+            <h3>Sales by Grade — {periodLabel}</h3>
+            <PieChart data={Object.entries(gradeMap).map(([k, v]) => ({ label: k, value: v.kg }))} size={140} />
+            <div className="sep" />
+            <table style={{ fontSize: 12 }}>
+              <thead><tr><th>Grade</th><th>Reels</th><th>Weight (kg)</th><th>Tons</th></tr></thead>
+              <tbody>
+                {Object.entries(gradeMap).sort((a, b) => b[1].kg - a[1].kg).map(([k, v]) => (
+                  <tr key={k}>
+                    <td style={{ fontWeight: 500 }}>{k}</td>
+                    <td>{v.reels}</td>
+                    <td>{fmt(Math.round(v.kg))}</td>
+                    <td style={{ color: "#9a9080" }}>{(v.kg / 1000).toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="card">
+            <h3>Most Popular Sizes — {periodLabel}</h3>
+            <PieChart data={topSizes.map(([sz, cnt]) => ({ label: sz + '"', value: cnt }))} size={140} />
+            <div className="sep" />
+            <table style={{ fontSize: 12 }}>
+              <thead><tr><th>Size</th><th>Reels Sold</th><th>Share</th></tr></thead>
+              <tbody>
+                {topSizes.map(([sz, cnt]) => (
+                  <tr key={sz}>
+                    <td><span className="serif" style={{ fontSize: 17 }}>{sz}"</span></td>
+                    <td>{cnt}</td>
+                    <td style={{ color: "#9a9080" }}>{((cnt / totalReels) * 100).toFixed(1)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Top customers */}
+        <div className="card">
+          <h3>Top Customers — {periodLabel}</h3>
+          <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+            {top5Cust.length === 0 && <div style={{ fontSize: 13, color: "#b0a898", fontStyle: "italic" }}>No data.</div>}
+            {top5Cust.map(([name, data], idx) => {
+              const topSz = Object.entries(data.sizes).sort((a, b) => b[1] - a[1])[0];
+              const topGr = Object.entries(data.grades).sort((a, b) => b[1] - a[1])[0];
+              const barW = top5Cust[0] ? (data.kg / top5Cust[0][1].kg) * 100 : 0;
+              return (
+                <div key={name} style={{ padding: "16px 0", borderBottom: idx < top5Cust.length - 1 ? "1px solid #e8eef8" : "none" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 28, height: 28, background: CHART_COLORS[idx], borderRadius: 6, display: "flex", alignItems: "center", justifyContent: "center", color: "#fff", fontSize: 12, fontWeight: 600 }}>{idx + 1}</div>
+                      <div>
+                        <div style={{ fontWeight: 600, fontSize: 14, color: "#1a2a4a" }}>{name}</div>
+                        <div style={{ fontSize: 11, color: "#9a9080", marginTop: 2 }}>{data.reels} reels · {fmt(Math.round(data.kg))} kg · {(data.kg / 1000).toFixed(2)} tons</div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      {topSz && <div style={{ fontSize: 11 }}>Top size: <span className="serif" style={{ fontSize: 16 }}>{topSz[0]}"</span> <span style={{ color: "#9a9080" }}>({topSz[1]}×)</span></div>}
+                      {topGr && <div style={{ fontSize: 11, color: "#9a9080", marginTop: 2 }}>{topGr[0]}</div>}
+                    </div>
+                  </div>
+                  <div style={{ background: "#dde5f0", borderRadius: 3, height: 4, overflow: "hidden" }}>
+                    <div style={{ width: `${barW}%`, height: "100%", background: CHART_COLORS[idx], borderRadius: 3, transition: "width 0.5s ease" }} />
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 8 }}>
+                    {Object.entries(data.sizes).sort((a, b) => b[1] - a[1]).map(([sz, cnt]) => (
+                      <span key={sz} className="tag" style={{ fontSize: 10 }}>{sz}" × {cnt}</span>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Size × Grade matrix */}
+        {Object.keys(gradeMap).length > 0 && (
+          <div className="card">
+            <h3>Size × Grade Breakdown — {periodLabel}</h3>
+            <div style={{ overflowX: "auto" }}>
+              <table style={{ fontSize: 12, minWidth: 400 }}>
+                <thead>
+                  <tr>
+                    <th>Size</th>
+                    {Object.keys(gradeMap).sort().map(g => <th key={g}>{g}</th>)}
+                    <th>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...new Set(periodSold.map(r => r.size))].sort((a, b) => Number(a) - Number(b)).map(sz => {
+                    const rowTotal = periodSold.filter(r => r.size === sz).length;
+                    return (
+                      <tr key={sz}>
+                        <td><span className="serif" style={{ fontSize: 16 }}>{sz}"</span></td>
+                        {Object.keys(gradeMap).sort().map(g => {
+                          const [bf, , gsm] = g.split(" ");
+                          const cnt = periodSold.filter(r => r.size === sz && r.bf === bf && r.gsm === gsm).length;
+                          return <td key={g} style={{ color: cnt > 0 ? "#1a2a4a" : "#c8d8f0", fontWeight: cnt > 0 ? 600 : 400 }}>{cnt > 0 ? cnt : "—"}</td>;
+                        })}
+                        <td style={{ fontWeight: 700, color: "#1e4d8c" }}>{rowTotal}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Key insights strip */}
+        <div className="card" style={{ background: "#1a2a4a", color: "#f0f4f9", border: "none" }}>
+          <h3 style={{ color: "#6a8abc", marginBottom: 16 }}>Key Insights — {periodLabel}</h3>
+          <div className="g3">
+            {[
+              { label: "Top Size", val: topSize + '"', sub: "most reels sold" },
+              { label: "Top Customer", val: top5Cust[0]?.[0] || "—", sub: `${fmt(Math.round(top5Cust[0]?.[1].kg || 0))} kg dispatched` },
+              { label: "Top Grade", val: Object.entries(gradeMap).sort((a, b) => b[1].kg - a[1].kg)[0]?.[0]?.replace(" GSM", "").replace(" BF ", "BF /") || "—", sub: "by weight" },
+            ].map(x => (
+              <div key={x.label}>
+                <div className="lbl" style={{ color: "#4a6a9a" }}>{x.label}</div>
+                <div className="serif" style={{ fontSize: 22, color: "#f0f4f9", lineHeight: 1.2 }}>{x.val}</div>
+                <div className="serif-italic" style={{ fontSize: 12, color: "#4a6a9a", marginTop: 4 }}>{x.sub}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </>}
     </div>
   );
 }

@@ -1123,18 +1123,32 @@ function SellTab({ state, update }) {
   const [customer, setCustomer] = useState("");
   const [date, setDate] = useState(today());
 
-  const suggestedChallan = (() => {
-    const last = state.stock
-      .filter(r => r.sold && r.soldChallanNo && r.soldDate)
-      .sort((a, b) => new Date(b.soldDate) - new Date(a.soldDate))[0]?.soldChallanNo || "";
-    if (!last) return "";
+  // Find the highest-numbered challan across ALL sold reels (not just most recent by date)
+  const { lastChallanNo, suggestedChallan } = (() => {
+    const allChallans = state.stock
+      .filter(r => r.sold && r.soldChallanNo)
+      .map(r => r.soldChallanNo);
+    if (!allChallans.length) return { lastChallanNo: "", suggestedChallan: "" };
+    // Sort by extracting trailing number — pick the one with highest numeric suffix
+    const sorted = [...allChallans].sort((a, b) => {
+      const ma = a.match(/^(.*?)(\d+)$/); const mb = b.match(/^(.*?)(\d+)$/);
+      if (ma && mb && ma[1] === mb[1]) return parseInt(ma[2], 10) - parseInt(mb[2], 10);
+      return a.localeCompare(b);
+    });
+    const last = sorted[sorted.length - 1];
     const m = last.match(/^(.*?)(\d+)$/);
-    return m ? m[1] + (parseInt(m[2], 10) + 1) : "";
+    const next = m ? m[1] + (parseInt(m[2], 10) + 1) : "";
+    return { lastChallanNo: last, suggestedChallan: next };
   })();
+
+  const allExistingChallans = new Set(state.stock.filter(r => r.sold && r.soldChallanNo).map(r => r.soldChallanNo));
+
   const [challanNo, setChallanNo] = useState(suggestedChallan);
   const [selected, setSelected] = useState([]);
   const [filter, setFilter] = useState({ bf: "", gsm: "", size: "" });
   const [done, setDone] = useState(null);
+
+  const challanDuplicate = challanNo && allExistingChallans.has(challanNo);
 
   const available = state.stock.filter(r => !r.sold);
   const filtered = available.filter(r => {
@@ -1169,7 +1183,7 @@ function SellTab({ state, update }) {
       <div style={{ fontSize: 44, marginBottom: 16 }}>✓</div>
       <div className="serif" style={{ fontSize: 28 }}>Sale Recorded</div>
       <div style={{ fontSize: 13, color: "#8a8070", marginTop: 8 }}>{done.count} reels · {fmt(done.wt)} kg → {done.customer}</div>
-      <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={() => { setDone(null); setSelected([]); setCustomer(""); setChallanNo(suggestedChallan); }}>Record Another Sale</button>
+      <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={() => { setDone(null); setSelected([]); setCustomer(""); setChallanNo(""); }}>Record Another Sale</button>
     </div>
   );
 
@@ -1182,8 +1196,12 @@ function SellTab({ state, update }) {
           <div><label className="lbl">Customer Name</label><CustomerInput value={customer} onChange={setCustomer} customers={state.customers || []} /></div>
           <div><label className="lbl">Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} /></div>
           <div>
-            <label className="lbl">Challan No{suggestedChallan ? <span style={{ color: "#1e4d8c", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> · auto-suggested</span> : ""}</label>
-            <input value={challanNo} onChange={e => setChallanNo(e.target.value)} placeholder="e.g. 313" />
+            <label className="lbl">Challan No
+              {suggestedChallan && <span style={{ color: "#1e4d8c", fontWeight: 400, textTransform: "none", letterSpacing: 0 }}> · suggested {suggestedChallan}</span>}
+            </label>
+            <input value={challanNo} onChange={e => setChallanNo(e.target.value)} placeholder={suggestedChallan || "e.g. 313"} />
+            {lastChallanNo && <div style={{ fontSize: 10, color: "#9a9080", marginTop: 4 }}>Last used: <strong>{lastChallanNo}</strong></div>}
+            {challanDuplicate && <div style={{ fontSize: 11, color: "#b83020", marginTop: 4, fontWeight: 600 }}>⚠ Challan {challanNo} already exists — check before saving.</div>}
           </div>
         </div>
       </div>
@@ -1520,6 +1538,14 @@ function HistoryTab({ state, update }) {
         </div>
       ) : (
         <div className="card-flat">
+          {/* Table header */}
+          <div style={{ display: "flex", alignItems: "center", gap: 0, padding: "8px 16px", background: "#f0f4f9", borderBottom: "1px solid #dde5f0" }}>
+            <div style={{ width: 64, flexShrink: 0, marginRight: 14, fontSize: 10, fontWeight: 700, color: "#6a8abc", textTransform: "uppercase", letterSpacing: "0.07em" }}>Ch No</div>
+            <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: "#6a8abc", textTransform: "uppercase", letterSpacing: "0.07em", marginRight: 12 }}>Customer</div>
+            <div style={{ width: 82, flexShrink: 0, marginRight: 12, fontSize: 10, fontWeight: 700, color: "#6a8abc", textTransform: "uppercase", letterSpacing: "0.07em" }}>Date</div>
+            <div style={{ width: 80, flexShrink: 0, marginRight: 10, fontSize: 10, fontWeight: 700, color: "#6a8abc", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "right" }}>Weight</div>
+            <div style={{ width: 20 }} />
+          </div>
           {challans.map((ch, idx) => {
             const key = ch.challanNo || `__${ch.date}__${ch.customer}`;
             const isOpen = openChallan === key;
@@ -1532,32 +1558,33 @@ function HistoryTab({ state, update }) {
             });
             return (
               <div key={key} style={{ borderBottom: idx < challans.length - 1 ? "1px solid #e8eef8" : "none" }}>
-                {/* Challan header */}
+                {/* Challan header — table-like layout */}
                 <div onClick={() => !isEditing && setOpenChallan(prev => prev === key ? null : key)}
-                  style={{ padding: "12px 16px", cursor: isEditing ? "default" : "pointer", display: "flex", alignItems: "center", gap: 10, transition: "background 0.12s", background: isOpen ? "#f0f4f9" : "transparent" }}
+                  style={{ padding: "11px 16px", cursor: isEditing ? "default" : "pointer", display: "flex", alignItems: "center", gap: 0, transition: "background 0.12s", background: isOpen ? "#f0f4f9" : "transparent" }}
                   onMouseEnter={e => { if (!isOpen && !isEditing) e.currentTarget.style.background = "#f0f4f9"; }}
                   onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Line 1: customer name + reels badge */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
-                      <span style={{ fontWeight: 600, fontSize: 14, color: "#1a2a4a", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                        {ch.customer || "—"}
-                      </span>
-                      <span className="tag tag-red" style={{ fontSize: 11, flexShrink: 0 }}>{ch.reels.length} reel{ch.reels.length !== 1 ? "s" : ""}</span>
-                    </div>
-                    {/* Line 2: date · challan no · kg · value · size tags */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 5, flexWrap: "wrap" }}>
-                      <span style={{ fontSize: 11, color: "#9a9080", fontWeight: 500 }}>{fmtDate(ch.date)}</span>
-                      {ch.challanNo && <><span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span><span style={{ fontSize: 11, color: "#9a9080" }}>Ch {ch.challanNo}</span></>}
-                      <span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span>
-                      <span style={{ fontSize: 11, color: "#6a6050", fontWeight: 500 }}>{fmt(Math.round(totalWt))} kg</span>
-                      {Object.keys(bySizeInChallan).sort((a, b) => Number(a) - Number(b)).slice(0, 4).map(sz => (
-                        <span key={sz} className="tag" style={{ fontSize: 10 }}>{sz}"</span>
-                      ))}
-                      {Object.keys(bySizeInChallan).length > 4 && <span style={{ fontSize: 10, color: "#9a9080" }}>+{Object.keys(bySizeInChallan).length - 4}</span>}
-                    </div>
+                  {/* Col 1: Ch No */}
+                  <div style={{ width: 64, flexShrink: 0, marginRight: 14 }}>
+                    <div style={{ fontSize: 9, color: "#8aabcc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Ch No</div>
+                    <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 17, lineHeight: 1, color: ch.challanNo ? "#1a2a4a" : "#c8d8f0", fontWeight: 500 }}>{ch.challanNo || "—"}</div>
                   </div>
-                  <div style={{ color: "#a0b8d8", fontSize: 16, flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>›</div>
+                  {/* Col 2: Customer */}
+                  <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+                    <div style={{ fontSize: 9, color: "#8aabcc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Customer</div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: "#1a2a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ch.customer || "—"}</div>
+                  </div>
+                  {/* Col 3: Date */}
+                  <div style={{ width: 82, flexShrink: 0, marginRight: 12 }}>
+                    <div style={{ fontSize: 9, color: "#8aabcc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Date</div>
+                    <div style={{ fontSize: 12, color: "#6a6050" }}>{fmtDate(ch.date)}</div>
+                  </div>
+                  {/* Col 4: Weight + reels */}
+                  <div style={{ width: 80, flexShrink: 0, marginRight: 10, textAlign: "right" }}>
+                    <div style={{ fontSize: 9, color: "#8aabcc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Weight</div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1a2a4a" }}>{fmt(Math.round(totalWt))} kg</div>
+                    <div style={{ fontSize: 10, color: "#9a9080" }}>{ch.reels.length} reel{ch.reels.length !== 1 ? "s" : ""}</div>
+                  </div>
+                  <div style={{ color: "#a0b8d8", fontSize: 16, flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s", marginLeft: 4 }}>›</div>
                 </div>
 
                 {/* Expanded content */}

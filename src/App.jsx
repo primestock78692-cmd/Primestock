@@ -1183,7 +1183,7 @@ function SellTab({ state, update }) {
       <div style={{ fontSize: 44, marginBottom: 16 }}>✓</div>
       <div className="serif" style={{ fontSize: 28 }}>Sale Recorded</div>
       <div style={{ fontSize: 13, color: "#8a8070", marginTop: 8 }}>{done.count} reels · {fmt(done.wt)} kg → {done.customer}</div>
-      <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={() => { setDone(null); setSelected([]); setCustomer(""); setChallanNo(""); }}>Record Another Sale</button>
+      <button className="btn btn-dark" style={{ marginTop: 22 }} onClick={() => { setDone(null); setSelected([]); setCustomer(""); setChallanNo(suggestedChallan); }}>Record Another Sale</button>
     </div>
   );
 
@@ -1538,14 +1538,6 @@ function HistoryTab({ state, update }) {
         </div>
       ) : (
         <div className="card-flat">
-          {/* Table header */}
-          <div style={{ display: "flex", alignItems: "center", gap: 0, padding: "8px 16px", background: "#f0f4f9", borderBottom: "1px solid #dde5f0" }}>
-            <div style={{ width: 64, flexShrink: 0, marginRight: 14, fontSize: 10, fontWeight: 700, color: "#6a8abc", textTransform: "uppercase", letterSpacing: "0.07em" }}>Ch No</div>
-            <div style={{ flex: 1, fontSize: 10, fontWeight: 700, color: "#6a8abc", textTransform: "uppercase", letterSpacing: "0.07em", marginRight: 12 }}>Customer</div>
-            <div style={{ width: 82, flexShrink: 0, marginRight: 12, fontSize: 10, fontWeight: 700, color: "#6a8abc", textTransform: "uppercase", letterSpacing: "0.07em" }}>Date</div>
-            <div style={{ width: 80, flexShrink: 0, marginRight: 10, fontSize: 10, fontWeight: 700, color: "#6a8abc", textTransform: "uppercase", letterSpacing: "0.07em", textAlign: "right" }}>Weight</div>
-            <div style={{ width: 20 }} />
-          </div>
           {challans.map((ch, idx) => {
             const key = ch.challanNo || `__${ch.date}__${ch.customer}`;
             const isOpen = openChallan === key;
@@ -1558,33 +1550,30 @@ function HistoryTab({ state, update }) {
             });
             return (
               <div key={key} style={{ borderBottom: idx < challans.length - 1 ? "1px solid #e8eef8" : "none" }}>
-                {/* Challan header — table-like layout */}
+                {/* Challan header — two-line layout, works on mobile */}
                 <div onClick={() => !isEditing && setOpenChallan(prev => prev === key ? null : key)}
-                  style={{ padding: "11px 16px", cursor: isEditing ? "default" : "pointer", display: "flex", alignItems: "center", gap: 0, transition: "background 0.12s", background: isOpen ? "#f0f4f9" : "transparent" }}
+                  style={{ padding: "10px 14px", cursor: isEditing ? "default" : "pointer", display: "flex", alignItems: "center", gap: 10, transition: "background 0.12s", background: isOpen ? "#f0f4f9" : "transparent" }}
                   onMouseEnter={e => { if (!isOpen && !isEditing) e.currentTarget.style.background = "#f0f4f9"; }}
                   onMouseLeave={e => { if (!isOpen) e.currentTarget.style.background = "transparent"; }}>
-                  {/* Col 1: Ch No */}
-                  <div style={{ width: 64, flexShrink: 0, marginRight: 14 }}>
-                    <div style={{ fontSize: 9, color: "#8aabcc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Ch No</div>
-                    <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 17, lineHeight: 1, color: ch.challanNo ? "#1a2a4a" : "#c8d8f0", fontWeight: 500 }}>{ch.challanNo || "—"}</div>
+                  {/* Ch No pill — fixed width, always visible */}
+                  <div style={{ flexShrink: 0, background: ch.challanNo ? "#1e4d8c" : "#dde5f0", borderRadius: 6, padding: "4px 8px", textAlign: "center", minWidth: 44 }}>
+                    <div style={{ fontSize: 8, color: ch.challanNo ? "#8ab4f8" : "#9a9080", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em", lineHeight: 1 }}>Ch</div>
+                    <div style={{ fontFamily: "'Playfair Display', serif", fontSize: 15, lineHeight: 1.1, color: ch.challanNo ? "#fff" : "#9a9080", fontWeight: 500, marginTop: 1 }}>{ch.challanNo || "—"}</div>
                   </div>
-                  {/* Col 2: Customer */}
-                  <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
-                    <div style={{ fontSize: 9, color: "#8aabcc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Customer</div>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: "#1a2a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{ch.customer || "—"}</div>
+                  {/* Main content — two lines */}
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {/* Line 1: customer name */}
+                    <div style={{ fontWeight: 600, fontSize: 13, color: "#1a2a4a", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", marginBottom: 3 }}>{ch.customer || "—"}</div>
+                    {/* Line 2: date · kg · reels */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "nowrap" }}>
+                      <span style={{ fontSize: 11, color: "#9a9080", whiteSpace: "nowrap" }}>{fmtDate(ch.date)}</span>
+                      <span style={{ fontSize: 10, color: "#c8d8f0" }}>·</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: "#1e4d8c", whiteSpace: "nowrap" }}>{fmt(Math.round(totalWt))} kg</span>
+                      <span style={{ fontSize: 10, color: "#c8d8f0" }}>·</span>
+                      <span style={{ fontSize: 11, color: "#9a9080", whiteSpace: "nowrap" }}>{ch.reels.length} reel{ch.reels.length !== 1 ? "s" : ""}</span>
+                    </div>
                   </div>
-                  {/* Col 3: Date */}
-                  <div style={{ width: 82, flexShrink: 0, marginRight: 12 }}>
-                    <div style={{ fontSize: 9, color: "#8aabcc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Date</div>
-                    <div style={{ fontSize: 12, color: "#6a6050" }}>{fmtDate(ch.date)}</div>
-                  </div>
-                  {/* Col 4: Weight + reels */}
-                  <div style={{ width: 80, flexShrink: 0, marginRight: 10, textAlign: "right" }}>
-                    <div style={{ fontSize: 9, color: "#8aabcc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.07em", marginBottom: 2 }}>Weight</div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1a2a4a" }}>{fmt(Math.round(totalWt))} kg</div>
-                    <div style={{ fontSize: 10, color: "#9a9080" }}>{ch.reels.length} reel{ch.reels.length !== 1 ? "s" : ""}</div>
-                  </div>
-                  <div style={{ color: "#a0b8d8", fontSize: 16, flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s", marginLeft: 4 }}>›</div>
+                  <div style={{ color: "#a0b8d8", fontSize: 16, flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>›</div>
                 </div>
 
                 {/* Expanded content */}
@@ -2052,6 +2041,119 @@ function ReportsTab({ state }) {
             </div>
           </div>
         )}
+
+        {/* Grade tonnage contribution */}
+        <div className="card">
+          <h3>Grade Contribution to Total Tonnage — {periodLabel}</h3>
+          {Object.entries(gradeMap).length === 0
+            ? <div style={{ fontSize: 13, color: "#b0a898", fontStyle: "italic" }}>No data.</div>
+            : (() => {
+                const totalGradeKg = Object.values(gradeMap).reduce((s, v) => s + v.kg, 0);
+                return (
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {Object.entries(gradeMap).sort((a, b) => b[1].kg - a[1].kg).map(([grade, v], i) => {
+                      const pct = totalGradeKg > 0 ? (v.kg / totalGradeKg) * 100 : 0;
+                      return (
+                        <div key={grade}>
+                          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: "#1a2a4a" }}>{grade}</span>
+                            <div style={{ display: "flex", gap: 12, alignItems: "baseline" }}>
+                              <span style={{ fontSize: 12, color: "#9a9080" }}>{v.reels} reels</span>
+                              <span style={{ fontSize: 13, fontWeight: 600, color: "#1e4d8c" }}>{(v.kg / 1000).toFixed(2)} t</span>
+                              <span style={{ fontSize: 12, color: "#6a8abc", minWidth: 36, textAlign: "right" }}>{pct.toFixed(1)}%</span>
+                            </div>
+                          </div>
+                          <div style={{ background: "#dde5f0", borderRadius: 4, height: 8, overflow: "hidden" }}>
+                            <div style={{ width: `${pct}%`, height: "100%", background: CHART_COLORS[i % CHART_COLORS.length], borderRadius: 4, transition: "width 0.5s ease" }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <div style={{ borderTop: "1px solid #dde5f0", paddingTop: 10, display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span style={{ color: "#9a9080" }}>Total</span>
+                      <span style={{ fontWeight: 700, color: "#1a2a4a" }}>{(totalGradeKg / 1000).toFixed(2)} metric tons</span>
+                    </div>
+                  </div>
+                );
+              })()
+          }
+        </div>
+
+        {/* Turnaround report — always uses ALL stock, not period-filtered */}
+        {(() => {
+          const soldReels = state.stock.filter(r => r.sold && r.inwardDate && r.soldDate);
+          if (soldReels.length === 0) return null;
+          // Group by grade+size
+          const taMap = {};
+          soldReels.forEach(r => {
+            const k = `${r.bf} BF ${r.gsm} GSM|${r.size}`;
+            if (!taMap[k]) taMap[k] = { grade: `${r.bf} BF ${r.gsm} GSM`, size: r.size, days: [], count: 0 };
+            const days = Math.round((new Date(r.soldDate) - new Date(r.inwardDate)) / 86400000);
+            if (days >= 0) { taMap[k].days.push(days); taMap[k].count++; }
+          });
+          const rows = Object.values(taMap)
+            .filter(x => x.days.length > 0)
+            .map(x => {
+              const avg = x.days.reduce((s, d) => s + d, 0) / x.days.length;
+              const min = Math.min(...x.days);
+              const max = Math.max(...x.days);
+              return { ...x, avg, min, max };
+            })
+            .sort((a, b) => b.avg - a.avg);
+          const overallAvg = soldReels.filter(r => r.inwardDate && r.soldDate).reduce((s, r) => {
+            const d = Math.round((new Date(r.soldDate) - new Date(r.inwardDate)) / 86400000);
+            return d >= 0 ? s + d : s;
+          }, 0) / soldReels.length;
+          return (
+            <div className="card">
+              <h3>Turnaround Report — Inward to Sale (All Time)</h3>
+              <div style={{ fontSize: 12, color: "#8a8070", marginBottom: 14 }}>
+                Average across all reels: <strong style={{ color: "#1e4d8c" }}>{Math.round(overallAvg)} days</strong> from inward to dispatch.
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ fontSize: 12, minWidth: 360 }}>
+                  <thead>
+                    <tr>
+                      <th>Grade</th>
+                      <th>Size</th>
+                      <th>Reels</th>
+                      <th>Avg Days</th>
+                      <th>Min</th>
+                      <th>Max</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map(row => {
+                      const heat = row.avg <= 7 ? "#2d6a4f" : row.avg <= 21 ? "#1e4d8c" : row.avg <= 45 ? "#a05800" : "#b83020";
+                      const heatBg = row.avg <= 7 ? "#edf7f0" : row.avg <= 21 ? "#eef3fb" : row.avg <= 45 ? "#fef5e8" : "#fef0ee";
+                      return (
+                        <tr key={`${row.grade}|${row.size}`}>
+                          <td style={{ fontWeight: 500 }}>{row.grade}</td>
+                          <td><span className="serif" style={{ fontSize: 16 }}>{row.size}"</span></td>
+                          <td style={{ color: "#9a9080" }}>{row.count}</td>
+                          <td>
+                            <span style={{ background: heatBg, color: heat, borderRadius: 5, padding: "2px 8px", fontWeight: 700, fontSize: 12 }}>{Math.round(row.avg)}d</span>
+                          </td>
+                          <td style={{ color: "#2d6a4f", fontSize: 11 }}>{row.min}d</td>
+                          <td style={{ color: "#9a9080", fontSize: 11 }}>{row.max}d</td>
+                          <td style={{ minWidth: 80 }}>
+                            <div style={{ background: "#dde5f0", borderRadius: 3, height: 5, overflow: "hidden" }}>
+                              <div style={{ width: `${Math.min((row.avg / 90) * 100, 100)}%`, height: "100%", background: heat, borderRadius: 3 }} />
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div style={{ fontSize: 11, color: "#b0a898", marginTop: 10, fontStyle: "italic" }}>
+                🟢 ≤7d · 🔵 ≤21d · 🟠 ≤45d · 🔴 &gt;45d. Based on inward date vs challan date.
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Key insights strip */}
         <div className="card" style={{ background: "#1a2a4a", color: "#f0f4f9", border: "none" }}>

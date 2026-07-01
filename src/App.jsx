@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, set } from "firebase/database";
+import { getDatabase, ref, onValue, runTransaction } from "firebase/database";
 
 // ─── FIREBASE ─────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -15,14 +15,6 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getDatabase(firebaseApp);
 const DATA_REF = "primestock_data_v1";
-
-async function cloudSave(data) {
-  try {
-    await set(ref(db, DATA_REF), data);
-  } catch (e) {
-    console.error("Firebase save error:", e);
-  }
-}
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const GRADES = [
@@ -168,7 +160,6 @@ export default function App() {
   const [syncing, setSyncing] = useState(true);
   const [lastSaved, setLastSaved] = useState(null);
   const [saveError, setSaveError] = useState(false);
-  const saveTimer = useRef(null);
   const hasPendingSave = useRef(false);
   const isRemoteUpdate = useRef(false);
 
@@ -190,25 +181,40 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // ── Save via an atomic transaction ──────────────────────────────────────
+  // This reads the CURRENT data straight from Firebase (not this device's
+  // possibly-stale local copy) and applies the change on top of that, then
+  // writes it back in one atomic step. That means two devices editing at
+  // close to the same time can no longer silently overwrite one another —
+  // whichever transaction runs second still starts from the first one's
+  // result. There is also no debounce delay here: the write is sent the
+  // instant the action happens, so there's no window where closing a tab
+  // or losing signal can cause an entry to vanish before it's saved.
   const update = useCallback(fn => {
+    hasPendingSave.current = true;
+    // Optimistic local update so the UI responds instantly
     setState(prev => {
       const next = JSON.parse(JSON.stringify(prev));
       fn(next);
-      hasPendingSave.current = true;
-      clearTimeout(saveTimer.current);
-      saveTimer.current = setTimeout(() => {
-        cloudSave(next)
-          .then(() => {
-            hasPendingSave.current = false;
-            setLastSaved(new Date());
-            setSaveError(false);
-          })
-          .catch(() => {
-            hasPendingSave.current = false;
-            setSaveError(true);
-          });
-      }, 300);
       return next;
+    });
+    const dataRef = ref(db, DATA_REF);
+    runTransaction(dataRef, (currentData) => {
+      const base = currentData ? { ...INITIAL_STATE, ...currentData } : { ...INITIAL_STATE };
+      const next = JSON.parse(JSON.stringify(base));
+      fn(next);
+      return next;
+    }).then((result) => {
+      hasPendingSave.current = false;
+      setSaveError(false);
+      setLastSaved(new Date());
+      if (result.committed && result.snapshot.exists()) {
+        setState({ ...INITIAL_STATE, ...result.snapshot.val() });
+      }
+    }).catch((e) => {
+      console.error("Firebase transaction error:", e);
+      hasPendingSave.current = false;
+      setSaveError(true);
     });
   }, []);
 
@@ -1141,14 +1147,10 @@ function SellTab({ state, update }) {
     return { lastChallanNo: last, suggestedChallan: next };
   })();
 
-  const allExistingChallans = new Set(state.stock.filter(r => r.sold && r.soldChallanNo).map(r => r.soldChallanNo));
-
   const [challanNo, setChallanNo] = useState(suggestedChallan);
   const [selected, setSelected] = useState([]);
   const [filter, setFilter] = useState({ bf: "", gsm: "", size: "" });
   const [done, setDone] = useState(null);
-
-  const challanDuplicate = challanNo && allExistingChallans.has(challanNo);
 
   const available = state.stock.filter(r => !r.sold);
   const filtered = available.filter(r => {
@@ -1201,7 +1203,6 @@ function SellTab({ state, update }) {
             </label>
             <input value={challanNo} onChange={e => setChallanNo(e.target.value)} placeholder={suggestedChallan || "e.g. 313"} />
             {lastChallanNo && <div style={{ fontSize: 10, color: "#9a9080", marginTop: 4 }}>Last used: <strong>{lastChallanNo}</strong></div>}
-            {challanDuplicate && <div style={{ fontSize: 11, color: "#b83020", marginTop: 4, fontWeight: 600 }}>⚠ Challan {challanNo} already exists — check before saving.</div>}
           </div>
         </div>
       </div>

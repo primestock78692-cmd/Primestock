@@ -1355,7 +1355,7 @@ function HistoryTab({ state, update }) {
   const deleteReelFromChallan = (reelId) => {
     update(s => {
       s.stock = s.stock.map(r => r.id === reelId
-        ? { ...r, sold: false, soldDate: undefined, soldTo: undefined, soldChallanNo: undefined }
+        ? { ...r, sold: false, soldDate: null, soldTo: null, soldChallanNo: null }
         : r
       );
     });
@@ -1374,7 +1374,7 @@ function HistoryTab({ state, update }) {
     const ids = ch.reels.map(r => r.id);
     update(s => {
       s.stock = s.stock.map(r => ids.includes(r.id)
-        ? { ...r, sold: false, soldDate: undefined, soldTo: undefined, soldChallanNo: undefined }
+        ? { ...r, sold: false, soldDate: null, soldTo: null, soldChallanNo: null }
         : r
       );
     });

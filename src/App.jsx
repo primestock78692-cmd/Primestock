@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { initializeApp } from "firebase/app";
-import { getDatabase, ref, onValue, runTransaction } from "firebase/database";
+import { getDatabase, ref, onValue, set } from "firebase/database";
 
 // ─── FIREBASE ─────────────────────────────────────────────────────────────────
 const firebaseConfig = {
@@ -15,6 +15,14 @@ const firebaseConfig = {
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getDatabase(firebaseApp);
 const DATA_REF = "primestock_data_v1";
+
+async function cloudSave(data) {
+  try {
+    await set(ref(db, DATA_REF), data);
+  } catch (e) {
+    console.error("Firebase save error:", e);
+  }
+}
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 const GRADES = [
@@ -160,6 +168,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(true);
   const [lastSaved, setLastSaved] = useState(null);
   const [saveError, setSaveError] = useState(false);
+  const saveTimer = useRef(null);
   const hasPendingSave = useRef(false);
   const isRemoteUpdate = useRef(false);
 
@@ -181,40 +190,25 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // ── Save via an atomic transaction ──────────────────────────────────────
-  // This reads the CURRENT data straight from Firebase (not this device's
-  // possibly-stale local copy) and applies the change on top of that, then
-  // writes it back in one atomic step. That means two devices editing at
-  // close to the same time can no longer silently overwrite one another —
-  // whichever transaction runs second still starts from the first one's
-  // result. There is also no debounce delay here: the write is sent the
-  // instant the action happens, so there's no window where closing a tab
-  // or losing signal can cause an entry to vanish before it's saved.
   const update = useCallback(fn => {
-    hasPendingSave.current = true;
-    // Optimistic local update so the UI responds instantly
     setState(prev => {
       const next = JSON.parse(JSON.stringify(prev));
       fn(next);
+      hasPendingSave.current = true;
+      clearTimeout(saveTimer.current);
+      saveTimer.current = setTimeout(() => {
+        cloudSave(next)
+          .then(() => {
+            hasPendingSave.current = false;
+            setLastSaved(new Date());
+            setSaveError(false);
+          })
+          .catch(() => {
+            hasPendingSave.current = false;
+            setSaveError(true);
+          });
+      }, 300);
       return next;
-    });
-    const dataRef = ref(db, DATA_REF);
-    runTransaction(dataRef, (currentData) => {
-      const base = currentData ? { ...INITIAL_STATE, ...currentData } : { ...INITIAL_STATE };
-      const next = JSON.parse(JSON.stringify(base));
-      fn(next);
-      return next;
-    }).then((result) => {
-      hasPendingSave.current = false;
-      setSaveError(false);
-      setLastSaved(new Date());
-      if (result.committed && result.snapshot.exists()) {
-        setState({ ...INITIAL_STATE, ...result.snapshot.val() });
-      }
-    }).catch((e) => {
-      console.error("Firebase transaction error:", e);
-      hasPendingSave.current = false;
-      setSaveError(true);
     });
   }, []);
 
@@ -896,11 +890,14 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
               const isOpen = openShip === key;
               const totalWt = sh.reels.reduce((s, r) => s + Number(r.weight), 0);
               const availCount = sh.reels.filter(r => !r.sold).length;
-              const bySizeInShip = {};
+              const sizesInShip = [...new Set(sh.reels.map(r => r.size))].sort((a, b) => Number(a) - Number(b));
+              const byGradeSize = {};
               sh.reels.forEach(r => {
-                if (!bySizeInShip[r.size]) bySizeInShip[r.size] = [];
-                bySizeInShip[r.size].push(r);
+                const gk = `${r.bf}|${r.gsm}|${r.shade}|${r.size}`;
+                if (!byGradeSize[gk]) byGradeSize[gk] = { bf: r.bf, gsm: r.gsm, shade: r.shade, size: r.size, reels: [] };
+                byGradeSize[gk].reels.push(r);
               });
+              const gradeSizeGroups = Object.values(byGradeSize).sort((a, b) => Number(a.size) - Number(b.size) || String(a.bf).localeCompare(String(b.bf)) || Number(a.gsm) - Number(b.gsm));
               return (
                 <div key={key} style={{ borderBottom: idx < shipList.length - 1 ? "1px solid #e8eef8" : "none" }}>
                   <div onClick={() => setOpenShip(p => p === key ? null : key)}
@@ -918,10 +915,10 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                         {sh.invoiceNo && <><span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span><span style={{ fontSize: 11, color: "#9a9080" }}>{sh.invoiceNo}</span></>}
                         <span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span>
                         <span style={{ fontSize: 11, color: "#6a6050", fontWeight: 500 }}>{fmt(Math.round(totalWt))} kg</span>
-                        {Object.keys(bySizeInShip).sort((a, b) => Number(a) - Number(b)).slice(0, 4).map(sz => (
+                        {sizesInShip.slice(0, 4).map(sz => (
                           <span key={sz} className="tag" style={{ fontSize: 10 }}>{sz}"</span>
                         ))}
-                        {Object.keys(bySizeInShip).length > 4 && <span style={{ fontSize: 10, color: "#9a9080" }}>+{Object.keys(bySizeInShip).length - 4}</span>}
+                        {sizesInShip.length > 4 && <span style={{ fontSize: 10, color: "#9a9080" }}>+{sizesInShip.length - 4}</span>}
                       </div>
                     </div>
                     <div style={{ color: "#a0b8d8", fontSize: 16, flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>›</div>
@@ -932,7 +929,7 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                       {/* Action buttons */}
                       <div style={{ display: "flex", gap: 8 }}>
                         <button className="btn btn-outline btn-sm"
-                          onClick={() => { setEditWeightKey(editWeightKey === key ? null : key); setEditShipKey(null); }}>
+                          onClick={() => setEditWeightKey(editWeightKey === key ? null : key)}>
                           {editWeightKey === key ? "✕ Cancel" : "✏ Edit Weights"}
                         </button>
                       </div>
@@ -941,11 +938,11 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                       {editWeightKey === key && (
                         <div style={{ background: "#fff", border: "1.5px solid #dde5f0", borderRadius: 10, padding: "14px 16px" }}>
                           <div style={{ fontSize: 11, fontWeight: 600, color: "#6a6050", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit Reel Weights</div>
-                          {Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => (
-                            <div key={sz} style={{ marginBottom: 14 }}>
+                          {gradeSizeGroups.map(({ size: sz, bf, gsm, reels }) => (
+                            <div key={`${bf}|${gsm}|${sz}`} style={{ marginBottom: 14 }}>
                               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                                 <span className="serif" style={{ fontSize: 18 }}>{sz}"</span>
-                                <span className="tag" style={{ fontSize: 10 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
+                                <span className="tag" style={{ fontSize: 10 }}>{bf} BF · {gsm} GSM</span>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                                 {reels.map((r, i) => (
@@ -972,14 +969,14 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
 
                       {/* Size breakdown (read-only when not editing) */}
                       {editWeightKey !== key && (
-                        Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => {
+                        gradeSizeGroups.map(({ size: sz, bf, gsm, reels }) => {
                           const szTotal = reels.reduce((s, r) => s + Number(r.weight), 0);
                           return (
-                            <div key={sz}>
+                            <div key={`${bf}|${gsm}|${sz}`}>
                               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                   <span className="serif" style={{ fontSize: 20 }}>{sz}"</span>
-                                  <span className="tag" style={{ fontSize: 10 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
+                                  <span className="tag" style={{ fontSize: 10 }}>{bf} BF · {gsm} GSM</span>
                                   <span style={{ fontSize: 11, color: "#9a9080" }}>{reels.length} reel{reels.length !== 1 ? "s" : ""}</span>
                                 </div>
                                 <span style={{ fontSize: 11, fontWeight: 600, color: "#6a6050" }}>{fmt(Math.round(szTotal))} kg</span>
@@ -1147,10 +1144,14 @@ function SellTab({ state, update }) {
     return { lastChallanNo: last, suggestedChallan: next };
   })();
 
+  const allExistingChallans = new Set(state.stock.filter(r => r.sold && r.soldChallanNo).map(r => r.soldChallanNo));
+
   const [challanNo, setChallanNo] = useState(suggestedChallan);
   const [selected, setSelected] = useState([]);
   const [filter, setFilter] = useState({ bf: "", gsm: "", size: "" });
   const [done, setDone] = useState(null);
+
+  const challanDuplicate = challanNo && allExistingChallans.has(challanNo);
 
   const available = state.stock.filter(r => !r.sold);
   const filtered = available.filter(r => {
@@ -1203,6 +1204,7 @@ function SellTab({ state, update }) {
             </label>
             <input value={challanNo} onChange={e => setChallanNo(e.target.value)} placeholder={suggestedChallan || "e.g. 313"} />
             {lastChallanNo && <div style={{ fontSize: 10, color: "#9a9080", marginTop: 4 }}>Last used: <strong>{lastChallanNo}</strong></div>}
+            {challanDuplicate && <div style={{ fontSize: 11, color: "#b83020", marginTop: 4, fontWeight: 600 }}>⚠ Challan {challanNo} already exists — check before saving.</div>}
           </div>
         </div>
       </div>
@@ -1355,7 +1357,7 @@ function HistoryTab({ state, update }) {
   const deleteReelFromChallan = (reelId) => {
     update(s => {
       s.stock = s.stock.map(r => r.id === reelId
-        ? { ...r, sold: false, soldDate: null, soldTo: null, soldChallanNo: null }
+        ? { ...r, sold: false, soldDate: undefined, soldTo: undefined, soldChallanNo: undefined }
         : r
       );
     });
@@ -1374,7 +1376,7 @@ function HistoryTab({ state, update }) {
     const ids = ch.reels.map(r => r.id);
     update(s => {
       s.stock = s.stock.map(r => ids.includes(r.id)
-        ? { ...r, sold: false, soldDate: null, soldTo: null, soldChallanNo: null }
+        ? { ...r, sold: false, soldDate: undefined, soldTo: undefined, soldChallanNo: undefined }
         : r
       );
     });

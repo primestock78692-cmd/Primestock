@@ -937,12 +937,28 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                       {/* Weight edit panel */}
                       {editWeightKey === key && (
                         <div style={{ background: "#fff", border: "1.5px solid #dde5f0", borderRadius: 10, padding: "14px 16px" }}>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6a6050", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit Reel Weights</div>
-                          {gradeSizeGroups.map(({ size: sz, bf, gsm, reels }) => (
-                            <div key={`${bf}|${gsm}|${sz}`} style={{ marginBottom: 14 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6a6050", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit Reels — Grade &amp; Weights</div>
+                          {gradeSizeGroups.map(({ size: sz, bf, gsm, shade, reels }) => {
+                            const curGrade = `${bf}|${gsm}|${shade}`;
+                            const gradeOpts = state.grades.some(g => `${g.bf}|${g.gsm}|${g.shade}` === curGrade)
+                              ? state.grades
+                              : [{ bf, gsm, shade, label: `${bf} BF ${gsm} GSM ${shade} (current)` }, ...state.grades];
+                            return (
+                            <div key={`${bf}|${gsm}|${shade}|${sz}`} style={{ marginBottom: 14 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
                                 <span className="serif" style={{ fontSize: 18 }}>{sz}"</span>
-                                <span className="tag" style={{ fontSize: 10 }}>{bf} BF · {gsm} GSM</span>
+                                <select
+                                  value={curGrade}
+                                  onChange={e => {
+                                    const [nbf, ngsm, nshade] = e.target.value.split("|");
+                                    if (`${nbf}|${ngsm}|${nshade}` === curGrade) return;
+                                    const ids = reels.map(r => r.id);
+                                    update(s => { s.stock = s.stock.map(r => ids.includes(r.id) ? { ...r, bf: nbf, gsm: ngsm, shade: nshade } : r); });
+                                  }}
+                                  style={{ width: "auto", padding: "3px 8px", fontSize: 11 }}>
+                                  {gradeOpts.map(g => <option key={g.label} value={`${g.bf}|${g.gsm}|${g.shade}`}>{g.label}</option>)}
+                                </select>
+                                <span style={{ fontSize: 10, color: "#9a9080" }}>{reels.length} reel{reels.length !== 1 ? "s" : ""}</span>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                                 {reels.map((r, i) => (
@@ -962,8 +978,8 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                                 ))}
                               </div>
                             </div>
-                          ))}
-                          <div style={{ fontSize: 11, color: "#9a9080", fontStyle: "italic", marginTop: 4 }}>Changes save automatically when you tap out of a field.</div>
+                            ); })}
+                          <div style={{ fontSize: 11, color: "#9a9080", fontStyle: "italic", marginTop: 4 }}>Weight and grade changes save automatically and update stock.</div>
                         </div>
                       )}
 

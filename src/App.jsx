@@ -890,14 +890,11 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
               const isOpen = openShip === key;
               const totalWt = sh.reels.reduce((s, r) => s + Number(r.weight), 0);
               const availCount = sh.reels.filter(r => !r.sold).length;
-              const sizesInShip = [...new Set(sh.reels.map(r => r.size))].sort((a, b) => Number(a) - Number(b));
-              const byGradeSize = {};
+              const bySizeInShip = {};
               sh.reels.forEach(r => {
-                const gk = `${r.bf}|${r.gsm}|${r.shade}|${r.size}`;
-                if (!byGradeSize[gk]) byGradeSize[gk] = { bf: r.bf, gsm: r.gsm, shade: r.shade, size: r.size, reels: [] };
-                byGradeSize[gk].reels.push(r);
+                if (!bySizeInShip[r.size]) bySizeInShip[r.size] = [];
+                bySizeInShip[r.size].push(r);
               });
-              const gradeSizeGroups = Object.values(byGradeSize).sort((a, b) => Number(a.size) - Number(b.size) || String(a.bf).localeCompare(String(b.bf)) || Number(a.gsm) - Number(b.gsm));
               return (
                 <div key={key} style={{ borderBottom: idx < shipList.length - 1 ? "1px solid #e8eef8" : "none" }}>
                   <div onClick={() => setOpenShip(p => p === key ? null : key)}
@@ -915,10 +912,10 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                         {sh.invoiceNo && <><span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span><span style={{ fontSize: 11, color: "#9a9080" }}>{sh.invoiceNo}</span></>}
                         <span style={{ fontSize: 10, color: "#b0c8e0" }}>·</span>
                         <span style={{ fontSize: 11, color: "#6a6050", fontWeight: 500 }}>{fmt(Math.round(totalWt))} kg</span>
-                        {sizesInShip.slice(0, 4).map(sz => (
+                        {Object.keys(bySizeInShip).sort((a, b) => Number(a) - Number(b)).slice(0, 4).map(sz => (
                           <span key={sz} className="tag" style={{ fontSize: 10 }}>{sz}"</span>
                         ))}
-                        {sizesInShip.length > 4 && <span style={{ fontSize: 10, color: "#9a9080" }}>+{sizesInShip.length - 4}</span>}
+                        {Object.keys(bySizeInShip).length > 4 && <span style={{ fontSize: 10, color: "#9a9080" }}>+{Object.keys(bySizeInShip).length - 4}</span>}
                       </div>
                     </div>
                     <div style={{ color: "#a0b8d8", fontSize: 16, flexShrink: 0, transform: isOpen ? "rotate(90deg)" : "none", transition: "transform 0.2s" }}>›</div>
@@ -937,28 +934,12 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                       {/* Weight edit panel */}
                       {editWeightKey === key && (
                         <div style={{ background: "#fff", border: "1.5px solid #dde5f0", borderRadius: 10, padding: "14px 16px" }}>
-                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6a6050", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit Reels — Grade &amp; Weights</div>
-                          {gradeSizeGroups.map(({ size: sz, bf, gsm, shade, reels }) => {
-                            const curGrade = `${bf}|${gsm}|${shade}`;
-                            const gradeOpts = state.grades.some(g => `${g.bf}|${g.gsm}|${g.shade}` === curGrade)
-                              ? state.grades
-                              : [{ bf, gsm, shade, label: `${bf} BF ${gsm} GSM ${shade} (current)` }, ...state.grades];
-                            return (
-                            <div key={`${bf}|${gsm}|${shade}|${sz}`} style={{ marginBottom: 14 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6a6050", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Edit Reel Weights</div>
+                          {Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => (
+                            <div key={sz} style={{ marginBottom: 14 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                                 <span className="serif" style={{ fontSize: 18 }}>{sz}"</span>
-                                <select
-                                  value={curGrade}
-                                  onChange={e => {
-                                    const [nbf, ngsm, nshade] = e.target.value.split("|");
-                                    if (`${nbf}|${ngsm}|${nshade}` === curGrade) return;
-                                    const ids = reels.map(r => r.id);
-                                    update(s => { s.stock = s.stock.map(r => ids.includes(r.id) ? { ...r, bf: nbf, gsm: ngsm, shade: nshade } : r); });
-                                  }}
-                                  style={{ width: "auto", padding: "3px 8px", fontSize: 11 }}>
-                                  {gradeOpts.map(g => <option key={g.label} value={`${g.bf}|${g.gsm}|${g.shade}`}>{g.label}</option>)}
-                                </select>
-                                <span style={{ fontSize: 10, color: "#9a9080" }}>{reels.length} reel{reels.length !== 1 ? "s" : ""}</span>
+                                <span className="tag" style={{ fontSize: 10 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
                               </div>
                               <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
                                 {reels.map((r, i) => (
@@ -978,21 +959,21 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                                 ))}
                               </div>
                             </div>
-                            ); })}
-                          <div style={{ fontSize: 11, color: "#9a9080", fontStyle: "italic", marginTop: 4 }}>Weight and grade changes save automatically and update stock.</div>
+                          ))}
+                          <div style={{ fontSize: 11, color: "#9a9080", fontStyle: "italic", marginTop: 4 }}>Changes save automatically when you tap out of a field.</div>
                         </div>
                       )}
 
                       {/* Size breakdown (read-only when not editing) */}
                       {editWeightKey !== key && (
-                        gradeSizeGroups.map(({ size: sz, bf, gsm, reels }) => {
+                        Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => {
                           const szTotal = reels.reduce((s, r) => s + Number(r.weight), 0);
                           return (
-                            <div key={`${bf}|${gsm}|${sz}`}>
+                            <div key={sz}>
                               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
                                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                                   <span className="serif" style={{ fontSize: 20 }}>{sz}"</span>
-                                  <span className="tag" style={{ fontSize: 10 }}>{bf} BF · {gsm} GSM</span>
+                                  <span className="tag" style={{ fontSize: 10 }}>{reels[0].bf} BF · {reels[0].gsm} GSM</span>
                                   <span style={{ fontSize: 11, color: "#9a9080" }}>{reels.length} reel{reels.length !== 1 ? "s" : ""}</span>
                                 </div>
                                 <span style={{ fontSize: 11, fontWeight: 600, color: "#6a6050" }}>{fmt(Math.round(szTotal))} kg</span>
@@ -1305,6 +1286,9 @@ function HistoryTab({ state, update }) {
   const [custView, setCustView] = useState("challans"); // "challans" | "customers" | "customerDetail"
   const [selCustomer, setSelCustomer] = useState("");
   const [custSearch, setCustSearch] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameVal, setRenameVal] = useState("");
+  const [renameMsg, setRenameMsg] = useState("");
 
   const sold = state.stock.filter(r => r.sold);
   const challanMap = {};
@@ -1400,6 +1384,24 @@ function HistoryTab({ state, update }) {
     setOpenChallan(null);
   };
 
+  const renameCustomer = (oldName) => {
+    const newName = renameVal.trim();
+    if (!newName) { setRenameMsg("Name cannot be empty."); return; }
+    if (newName === oldName) { setRenaming(false); setRenameMsg(""); return; }
+    const merging = Object.keys(custStats).some(c => c.toLowerCase() === newName.toLowerCase() && c !== oldName);
+    update(s => {
+      s.stock = s.stock.map(r => (r.soldTo === oldName ? { ...r, soldTo: newName } : r));
+      const list = (s.customers || []).filter(c => c !== oldName);
+      if (!list.includes(newName)) list.push(newName);
+      s.customers = list.sort();
+    });
+    setSelCustomer(newName);
+    setFilterCustomer(newName);
+    setRenaming(false);
+    setRenameMsg(merging ? `✓ Renamed and merged into existing "${newName}".` : `✓ Renamed to "${newName}".`);
+    setTimeout(() => setRenameMsg(""), 2600);
+  };
+
   // ── CUSTOMER LIST VIEW ──
   if (custView === "customers") return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} className="fade-in">
@@ -1471,9 +1473,36 @@ function HistoryTab({ state, update }) {
       {isCustomerDetail ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button className="btn btn-outline btn-sm" onClick={() => { setCustView("customers"); setSelCustomer(""); setFilterCustomer(""); setLedgerTab("overview"); }}>← Customers</button>
-            <div><div className="section-eyebrow">Customer Ledger</div><h2>{selCustomer}</h2></div>
+            <button className="btn btn-outline btn-sm" onClick={() => { setCustView("customers"); setSelCustomer(""); setFilterCustomer(""); setRenaming(false); setRenameMsg(""); }}>← Customers</button>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div className="section-eyebrow">Customer Ledger</div>
+              {renaming ? (
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
+                  <div style={{ flex: 1, minWidth: 180 }}>
+                    <CustomerInput
+                      value={renameVal}
+                      onChange={v => { setRenameVal(v); setRenameMsg(""); }}
+                      customers={state.customers || []}
+                      placeholder="New customer name"
+                    />
+                  </div>
+                  <button className="btn btn-dark btn-sm" onClick={() => renameCustomer(selCustomer)}>✓ Save</button>
+                  <button className="btn btn-outline btn-sm" onClick={() => { setRenaming(false); setRenameMsg(""); }}>Cancel</button>
+                </div>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <h2 style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{selCustomer}</h2>
+                  <button className="btn btn-outline btn-sm" onClick={() => { setRenameVal(selCustomer); setRenaming(true); setRenameMsg(""); }}>✎ Rename</button>
+                </div>
+              )}
+            </div>
           </div>
+          {renaming && (
+            <div className="warn-box">
+              Renaming updates this name on all {custLedger?.cs.challans || 0} existing challan{(custLedger?.cs.challans || 0) !== 1 ? "s" : ""}, on all future ones, and in the name suggestions. If the new name already exists, the two customers merge into one.
+            </div>
+          )}
+          {renameMsg && <div className="ok-box">{renameMsg}</div>}
 
           {/* Stats row */}
           {custLedger && (

@@ -672,6 +672,9 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
   const [filter, setFilter] = useState({ bf: "", gsm: "", shade: "", size: "", showSold: false });
   const [openShip, setOpenShip] = useState(null);
   const [editWeightKey, setEditWeightKey] = useState(null); // shipment being weight-edited
+  const [editReelsKey, setEditReelsKey] = useState(null);   // shipment being reel-edited (add/remove)
+  const [addReelForm, setAddReelForm] = useState({ grade: "", size: "", weight: "" });
+  const [confirmRemoveReel, setConfirmRemoveReel] = useState(null); // reel pending removal
 
   useEffect(() => {
     if (stockNav?.size) {
@@ -924,10 +927,22 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                     <div style={{ background: "#f0f4f9", borderTop: "1px solid #dde8f5", padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
 
                       {/* Action buttons */}
-                      <div style={{ display: "flex", gap: 8 }}>
+                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                         <button className="btn btn-outline btn-sm"
-                          onClick={() => setEditWeightKey(editWeightKey === key ? null : key)}>
+                          onClick={() => { setEditWeightKey(editWeightKey === key ? null : key); setEditReelsKey(null); }}>
                           {editWeightKey === key ? "✕ Cancel" : "✏ Edit Weights"}
+                        </button>
+                        <button className="btn btn-outline btn-sm"
+                          onClick={() => {
+                            const opening = editReelsKey !== key;
+                            setEditReelsKey(opening ? key : null);
+                            setEditWeightKey(null);
+                            if (opening) {
+                              const g = sh.reels[0];
+                              setAddReelForm({ grade: g ? `${g.bf}|${g.gsm}|${g.shade}` : (state.grades[0] ? `${state.grades[0].bf}|${state.grades[0].gsm}|${state.grades[0].shade}` : ""), size: "", weight: "" });
+                            }
+                          }}>
+                          {editReelsKey === key ? "✕ Cancel" : "＋ Add / Remove Reels"}
                         </button>
                       </div>
 
@@ -964,8 +979,73 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                         </div>
                       )}
 
+                      {/* Add / Remove reels panel */}
+                      {editReelsKey === key && (
+                        <div style={{ background: "#fff", border: "1.5px solid #dde5f0", borderRadius: 10, padding: "14px 16px" }}>
+                          <div style={{ fontSize: 11, fontWeight: 600, color: "#6a6050", marginBottom: 12, textTransform: "uppercase", letterSpacing: "0.07em" }}>Reels in This Entry — {sh.reels.length} reel{sh.reels.length !== 1 ? "s" : ""}</div>
+                          {Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, rlist]) => (
+                            <div key={sz} style={{ marginBottom: 12 }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+                                <span className="serif" style={{ fontSize: 18 }}>{sz}"</span>
+                                <span className="tag" style={{ fontSize: 10 }}>{rlist[0].bf} BF · {rlist[0].gsm} GSM</span>
+                              </div>
+                              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                                {[...rlist].sort((a, b) => Number(a.weight) - Number(b.weight)).map(r => (
+                                  <div key={r.id} style={{ display: "flex", alignItems: "center", gap: 6, background: r.sold ? "#fef0ee" : "#edf7f0", border: `1px solid ${r.sold ? "#f0c0ba" : "#b5dcc0"}`, borderRadius: 7, padding: "5px 9px" }}>
+                                    <span style={{ fontSize: 12, color: r.sold ? "#9a4030" : "#2d6a4f", fontWeight: 500 }}>{fmt(r.weight)} kg</span>
+                                    {r.sold
+                                      ? <span style={{ fontSize: 9, color: "#c07060" }} title="Undo the sale from History before removing">sold</span>
+                                      : <button onClick={() => setConfirmRemoveReel(r)} title="Remove this reel from stock"
+                                          style={{ background: "transparent", color: "#b83020", border: "1px solid #f0c0ba", borderRadius: 4, padding: "1px 6px", fontSize: 11, cursor: "pointer", lineHeight: 1.5 }}>✕</button>
+                                    }
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                          <div style={{ borderTop: "1px solid #e8eef8", marginTop: 6, paddingTop: 12 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, color: "#6a6050", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.07em" }}>Add a Reel to This Entry</div>
+                            <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+                              <div style={{ flex: 2, minWidth: 150 }}>
+                                <label className="lbl">Grade</label>
+                                <select value={addReelForm.grade} onChange={e => setAddReelForm(f => ({ ...f, grade: e.target.value }))} style={{ fontSize: 12 }}>
+                                  {state.grades.map(g => <option key={g.label} value={`${g.bf}|${g.gsm}|${g.shade}`}>{g.label}</option>)}
+                                </select>
+                              </div>
+                              <div style={{ flex: 1, minWidth: 90 }}>
+                                <label className="lbl">Size</label>
+                                <select value={addReelForm.size} onChange={e => setAddReelForm(f => ({ ...f, size: e.target.value }))} style={{ fontSize: 12 }}>
+                                  <option value="">Select</option>{SIZE_OPTIONS.map(o => <option key={o} value={o}>{o}"</option>)}
+                                </select>
+                              </div>
+                              <div style={{ flex: 1, minWidth: 90 }}>
+                                <label className="lbl">Weight (kg)</label>
+                                <input type="number" inputMode="numeric" value={addReelForm.weight}
+                                  onChange={e => setAddReelForm(f => ({ ...f, weight: e.target.value }))}
+                                  onKeyDown={e => {
+                                    if (e.key === "Enter" && addReelForm.grade && addReelForm.size && addReelForm.weight && !isNaN(addReelForm.weight)) {
+                                      const [bf, gsm, shade] = addReelForm.grade.split("|");
+                                      update(s => { s.stock = [...s.stock, { id: genId(), bf, gsm, shade, size: addReelForm.size, weight: addReelForm.weight, sold: false, supplier: sh.supplier, invoiceNo: sh.invoiceNo || "", inwardDate: sh.date }]; });
+                                      setAddReelForm(f => ({ ...f, weight: "" }));
+                                    }
+                                  }}
+                                  placeholder="e.g. 274" style={{ fontSize: 12 }} />
+                              </div>
+                              <button className="btn btn-dark btn-sm"
+                                disabled={!addReelForm.grade || !addReelForm.size || !addReelForm.weight || isNaN(addReelForm.weight)}
+                                onClick={() => {
+                                  const [bf, gsm, shade] = addReelForm.grade.split("|");
+                                  update(s => { s.stock = [...s.stock, { id: genId(), bf, gsm, shade, size: addReelForm.size, weight: addReelForm.weight, sold: false, supplier: sh.supplier, invoiceNo: sh.invoiceNo || "", inwardDate: sh.date }]; });
+                                  setAddReelForm(f => ({ ...f, weight: "" }));
+                                }}>＋ Add</button>
+                            </div>
+                            <div style={{ fontSize: 11, color: "#9a9080", fontStyle: "italic", marginTop: 8 }}>New reels join this shipment ({sh.supplier}{sh.invoiceNo ? ` · ${sh.invoiceNo}` : ""}, {fmtDate(sh.date)}) and appear in stock immediately.</div>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Size breakdown (read-only when not editing) */}
-                      {editWeightKey !== key && (
+                      {editWeightKey !== key && editReelsKey !== key && (
                         Object.entries(bySizeInShip).sort((a, b) => Number(a[0]) - Number(b[0])).map(([sz, reels]) => {
                           const szTotal = reels.reduce((s, r) => s + Number(r.weight), 0);
                           return (
@@ -1001,6 +1081,25 @@ function StockTab({ state, update, stockNav, clearStockNav }) {
                 </div>
               );
             })}
+          </div>
+        )}
+
+        {/* Confirm remove reel from inward entry */}
+        {confirmRemoveReel && (
+          <div className="modal-bg" onClick={() => setConfirmRemoveReel(null)}>
+            <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 340 }}>
+              <div className="serif" style={{ fontSize: 20, marginBottom: 10 }}>Remove this reel?</div>
+              <p style={{ fontSize: 13, color: "#8a8070", marginBottom: 20, lineHeight: 1.6 }}>
+                The <strong>{confirmRemoveReel.size}" · {fmt(confirmRemoveReel.weight)} kg</strong> reel will be permanently deleted from this inward entry and from stock. This cannot be undone.
+              </p>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button className="btn btn-outline" style={{ flex: 1, justifyContent: "center" }} onClick={() => setConfirmRemoveReel(null)}>Cancel</button>
+                <button style={{ flex: 1, background: "#b83020", color: "#fff", border: "none", borderRadius: 8, padding: "9px", fontSize: 13, cursor: "pointer" }}
+                  onClick={() => { const id = confirmRemoveReel.id; update(s => { s.stock = s.stock.filter(x => x.id !== id); }); setConfirmRemoveReel(null); }}>
+                  Delete Reel
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
@@ -1286,9 +1385,6 @@ function HistoryTab({ state, update }) {
   const [custView, setCustView] = useState("challans"); // "challans" | "customers" | "customerDetail"
   const [selCustomer, setSelCustomer] = useState("");
   const [custSearch, setCustSearch] = useState("");
-  const [renaming, setRenaming] = useState(false);
-  const [renameVal, setRenameVal] = useState("");
-  const [renameMsg, setRenameMsg] = useState("");
 
   const sold = state.stock.filter(r => r.sold);
   const challanMap = {};
@@ -1384,24 +1480,6 @@ function HistoryTab({ state, update }) {
     setOpenChallan(null);
   };
 
-  const renameCustomer = (oldName) => {
-    const newName = renameVal.trim();
-    if (!newName) { setRenameMsg("Name cannot be empty."); return; }
-    if (newName === oldName) { setRenaming(false); setRenameMsg(""); return; }
-    const merging = Object.keys(custStats).some(c => c.toLowerCase() === newName.toLowerCase() && c !== oldName);
-    update(s => {
-      s.stock = s.stock.map(r => (r.soldTo === oldName ? { ...r, soldTo: newName } : r));
-      const list = (s.customers || []).filter(c => c !== oldName);
-      if (!list.includes(newName)) list.push(newName);
-      s.customers = list.sort();
-    });
-    setSelCustomer(newName);
-    setFilterCustomer(newName);
-    setRenaming(false);
-    setRenameMsg(merging ? `✓ Renamed and merged into existing "${newName}".` : `✓ Renamed to "${newName}".`);
-    setTimeout(() => setRenameMsg(""), 2600);
-  };
-
   // ── CUSTOMER LIST VIEW ──
   if (custView === "customers") return (
     <div style={{ display: "flex", flexDirection: "column", gap: 16 }} className="fade-in">
@@ -1473,36 +1551,9 @@ function HistoryTab({ state, update }) {
       {isCustomerDetail ? (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-            <button className="btn btn-outline btn-sm" onClick={() => { setCustView("customers"); setSelCustomer(""); setFilterCustomer(""); setRenaming(false); setRenameMsg(""); }}>← Customers</button>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div className="section-eyebrow">Customer Ledger</div>
-              {renaming ? (
-                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 2 }}>
-                  <div style={{ flex: 1, minWidth: 180 }}>
-                    <CustomerInput
-                      value={renameVal}
-                      onChange={v => { setRenameVal(v); setRenameMsg(""); }}
-                      customers={state.customers || []}
-                      placeholder="New customer name"
-                    />
-                  </div>
-                  <button className="btn btn-dark btn-sm" onClick={() => renameCustomer(selCustomer)}>✓ Save</button>
-                  <button className="btn btn-outline btn-sm" onClick={() => { setRenaming(false); setRenameMsg(""); }}>Cancel</button>
-                </div>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <h2 style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{selCustomer}</h2>
-                  <button className="btn btn-outline btn-sm" onClick={() => { setRenameVal(selCustomer); setRenaming(true); setRenameMsg(""); }}>✎ Rename</button>
-                </div>
-              )}
-            </div>
+            <button className="btn btn-outline btn-sm" onClick={() => { setCustView("customers"); setSelCustomer(""); setFilterCustomer(""); setLedgerTab("overview"); }}>← Customers</button>
+            <div><div className="section-eyebrow">Customer Ledger</div><h2>{selCustomer}</h2></div>
           </div>
-          {renaming && (
-            <div className="warn-box">
-              Renaming updates this name on all {custLedger?.cs.challans || 0} existing challan{(custLedger?.cs.challans || 0) !== 1 ? "s" : ""}, on all future ones, and in the name suggestions. If the new name already exists, the two customers merge into one.
-            </div>
-          )}
-          {renameMsg && <div className="ok-box">{renameMsg}</div>}
 
           {/* Stats row */}
           {custLedger && (
